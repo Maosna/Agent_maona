@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Maona</title>
+  <script>
+    // 避免主题闪烁：在 CSS 加载前同步设置主题
+    (function() {
+      var style = localStorage.getItem("maona_ui_style");
+      if (style && style !== "sakura") document.documentElement.dataset.style = style;
+      var theme = localStorage.getItem("maona_theme");
+      if (theme === "dark") document.documentElement.dataset.theme = "dark";
+    })();
+  </script>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/assets/atom-one-dark.min.css">
+</head>
+<body>
+  <div id="app">
+    <!-- ===== 左侧工作空间面板 ===== -->
+    <aside id="sidebar">
+      <div class="sidebar-top">
+        <button id="btn-new-task" class="btn-new-chat">+ 新任务</button>
+      </div>
+
+      <div class="sidebar-scroll">
+        <div class="sidebar-search">
+          <button id="btn-toggle-search" class="btn-sm" title="搜索对话 Ctrl+Shift+F"></button>
+          <input type="text" id="conv-search" placeholder="搜索对话..." style="display:none">
+        </div>
+        <div class="ws-tree" id="ws-tree">
+          <p class="loading">加载中...</p>
+        </div>
+      </div>
+
+      <div class="sidebar-bottom">
+        <button class="nav-btn" data-page="settings">设置</button>
+        <div class="sidebar-footer">
+          <span id="backend-status" class="status-dot offline"></span>
+          <span class="status-text">Maona v0.5</span>
+          <span id="token-count" class="token-count" title="本次对话 token 估算"></span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ===== 主区域 ===== -->
+    <main id="main">
+      <div id="drop-overlay" class="drop-overlay" style="display:none">
+        <div class="drop-zone"><span class="drop-icon"></span><p>释放文件以发送</p></div>
+      </div>
+
+      <section id="page-chat" class="page active">
+        <div class="chat-topbar">
+          <div class="model-selector">
+            <select id="persona-select" title="AI 人设"><option value="default">人设: 默认</option></select>
+            <select id="model-select"><option value="">加载中...</option></select>
+            <span id="balance-display" class="balance-display" title="点击刷新余额"></span>
+          </div>
+          <div class="export-menu">
+            <button id="btn-export" class="btn-sm" title="导出对话" onclick="var o=document.getElementById('export-options');o.style.display=o.style.display==='none'?'block':'none'">⤵ 导出</button>
+            <div id="export-options" class="export-dropdown" style="display:none">
+              <button onclick="doExport('markdown')">Markdown</button>
+              <button onclick="doExport('text')">纯文本</button>
+              <button onclick="doExport('json')">JSON</button>
+              <button onclick="doExport('debug')" class="btn-debug-export">🔧 完整调试包</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="chat-messages" class="chat-messages">
+          <div class="welcome-msg">
+            <h2>Maona</h2>
+            <p id="welcome-text">主人好，现在要做什么喵？</p>
+          </div>
+        </div>
+
+        <!-- 任务列表面板 -->
+        <div id="task-panel" class="task-panel" style="display:none">
+          <div class="task-panel-header" onclick="document.getElementById('task-panel').classList.toggle('collapsed')">
+            <span class="task-panel-arrow">▼</span>
+            <span>任务列表</span>
+            <span id="task-panel-count" class="task-panel-count">0</span>
+          </div>
+          <div id="task-panel-body" class="task-panel-body"></div>
+        </div>
+
+        <div class="chat-input-area">
+          <div id="drop-preview" class="drop-preview" style="display:none">
+            <div id="drop-files" class="drop-files"></div>
+            <button id="btn-clear-files" class="btn-icon" title="清除文件" onclick="document.getElementById('drop-preview').style.display='none';document.getElementById('drop-files').innerHTML='';if(window.chat)window.chat._uploadedFiles=[]">×</button>
+          </div>
+          <div class="input-box">
+            <textarea id="chat-input" rows="3" placeholder="输入消息喵..." autofocus></textarea>
+            <div class="input-actions">
+              <div class="upload-btn-wrap">
+                <button id="btn-attach" class="btn-file-upload" title="上传文件/文件夹" onclick="toggleAttachMenu(event)">+</button>
+                <div id="attach-menu" class="attach-menu" style="display:none">
+                  <button onclick="document.getElementById('file-input').click()">上传文件</button>
+                  <button onclick="document.getElementById('folder-input').click()">上传文件夹</button>
+                </div>
+              </div>
+              <input type="file" id="file-input" multiple hidden accept=".txt,.md,.json,.py,.js,.html,.css,.log,.csv,.yml,.yaml,.xml,.toml,.ini,.cfg,.sh,.bat,.ps1,image/*">
+              <input type="file" id="folder-input" webkitdirectory hidden>
+              <div id="context-ring" class="context-ring" title="上下文用量">
+                <svg width="22" height="22" viewBox="0 0 22 22">
+                  <circle cx="11" cy="11" r="9" fill="none" stroke="var(--bg3)" stroke-width="3"/>
+                  <circle id="context-ring-fill" cx="11" cy="11" r="9" fill="none" stroke="var(--accent2)" stroke-width="3"
+                    stroke-dasharray="56.55" stroke-dashoffset="56.55" stroke-linecap="round"
+                    transform="rotate(-90 11 11)"/>
+                </svg>
+                <span id="context-ring-pct" class="context-ring-pct"></span>
+              </div>
+              <button id="btn-send" class="btn-send" title="发送">→</button>
+              <button id="btn-stop" class="btn-stop" title="停止生成 (Esc)" style="display:none">■</button>
+            </div>
+          </div>
+          <div class="ws-bar" id="ws-bar" onclick="event.stopPropagation();pickWorkspace()">默认工作空间</div>
+        </div>
+
+        <!-- 执行 Trace 面板 -->
+        <div id="trace-container" style="display:none;max-height:200px;overflow-y:auto;border-top:1px solid var(--border);background:var(--bg)">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 10px;background:var(--bg2);border-bottom:1px solid var(--border)">
+            <span style="font-size:11px;color:var(--text-dim)">📊 执行日志（最近 20 条）</span>
+            <button onclick="tracePanel.clear()" style="font-size:10px;color:var(--text-dim);background:none;border:none;cursor:pointer">清空</button>
+          </div>
+          <div id="trace-panel"></div>
+        </div>
+        <div id="trace-toggle" onclick="tracePanel.toggle()" style="
+          padding:4px 10px;font-size:11px;color:var(--text-dim);cursor:pointer;
+          background:var(--bg2);border-top:1px solid var(--border);text-align:center;
+        ">▶ 执行日志</div>
+
+        <!-- 指标面板 -->
+        <div id="metrics-container" style="display:none;max-height:260px;overflow-y:auto;border-top:1px solid var(--border);background:var(--bg)">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 10px;background:var(--bg2);border-bottom:1px solid var(--border)">
+            <span style="font-size:11px;color:var(--text-dim)">📈 Agent 指标</span>
+            <button onclick="metricsPanel.reset()" style="font-size:10px;color:var(--danger);background:none;border:none;cursor:pointer">重置</button>
+          </div>
+          <div id="metrics-panel"></div>
+        </div>
+        <div onclick="metricsPanel.toggle()" style="
+          padding:4px 10px;font-size:11px;color:var(--text-dim);cursor:pointer;
+          background:var(--bg2);border-top:1px solid var(--border);text-align:center;
+        ">▶ Agent 指标</div>
+      </section>
+
+      <!-- 设置页 -->
+      <section id="page-settings" class="page">
+        <div class="settings-header">
+          <h2>设置</h2>
+          <button id="btn-back-from-settings" class="btn-icon" title="返回对话">← 返回</button>
+        </div>
+        <div class="settings-tabs">
+          <button class="tab-btn active" data-tab="providers">API 管理</button>
+          <button class="tab-btn" data-tab="model">模型参数</button>
+          <button class="tab-btn" data-tab="knowledge">知识库</button>
+          <button class="tab-btn" data-tab="general">通用</button>
+          <button class="tab-btn" data-tab="persona">人设</button>
+          <button class="tab-btn" data-tab="skills">技能</button>
+        </div>
+        <div id="tab-providers" class="tab-content active">
+          <div id="providers-list" class="providers-list"><p class="loading">加载中...</p></div>
+          <div class="provider-add">
+            <h3 id="provider-form-title">添加 API</h3>
+            <input type="hidden" id="edit-provider-name" value="">
+            <label>名称 <input type="text" id="new-provider-name" placeholder="例如: DeepSeek, GLM..."></label>
+            <label>API URL <input type="text" id="new-provider-url" placeholder="https://api.deepseek.com/v1"></label>
+            <label>API Key <input type="password" id="new-provider-key" placeholder="sk-..."></label>
+            <button id="btn-add-provider" class="btn-primary">添加</button>
+            <button id="btn-cancel-edit" class="btn-sm" style="display:none">取消编辑</button>
+            <span id="settings-status" class="status-msg"></span>
+          </div>
+        </div>
+        <div id="tab-model" class="tab-content">
+          <div class="settings-section">
+            <h3>模型参数</h3>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-label">温度 <span class="setting-val" id="val-temperature">0.7</span></span>
+                <span class="setting-desc">越高越有创意，越低越确定</span>
+              </div>
+              <input type="range" id="model-temperature" min="0" max="2" step="0.05" value="0.7" class="styled-range">
+              <div class="range-labels"><span>精确 0</span><span>平衡 1</span><span>创意 2</span></div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-label">最大 Token</span>
+                <span class="setting-desc">单次回复最长字数</span>
+              </div>
+              <input type="number" id="model-max-tokens" min="256" max="128000" value="4096" step="256" class="styled-input">
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-label">Top P <span class="setting-val" id="val-top-p">0.90</span></span>
+                <span class="setting-desc">核采样阈值，控制回复多样性</span>
+              </div>
+              <input type="range" id="model-top-p" min="0" max="1" step="0.05" value="0.9" class="styled-range">
+              <div class="range-labels"><span>精确</span><span>平衡</span><span>多样</span></div>
+            </div>
+            <div class="setting-divider"></div>
+            <h4>DeepSeek 思考模式 (DeepThink)</h4>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-label">启用思考模式</span>
+                <span class="setting-desc">开启后模型先思考再回答，提升复杂任务准确率</span>
+              </div>
+              <label class="switch-toggle">
+                <input type="checkbox" id="model-thinking-toggle">
+                <span class="slider round"></span>
+              </label>
+            </div>
+            <div class="setting-row" id="thinking-effort-row" style="display:none">
+              <div class="setting-info">
+                <span class="setting-label">思考强度</span>
+                <span class="setting-desc">high=日常任务 / max=复杂Agent任务（如Claude Code）</span>
+              </div>
+              <select id="model-thinking-effort" class="styled-select">
+                <option value="high">high（日常）</option>
+                <option value="max">max（复杂）</option>
+              </select>
+              <span id="val-thinking-effort" class="val-display">high</span>
+            </div>
+            <div class="setting-divider"></div>
+            <h4>向量检索 (Embeddings)</h4>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-label">启用向量检索</span>
+                <span class="setting-desc">关闭则回退 TF-IDF 关键词搜索</span>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="model-use-embeddings" checked>
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-label">Embedding 模型</span>
+                <span class="setting-desc">OpenAI/GLM 兼容的 embedding 模型</span>
+              </div>
+              <input type="text" id="model-embedding-model" value="text-embedding-3-small" class="styled-input">
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-label">API URL</span>
+                <span class="setting-desc">留空则自动用已配 Provider 的 /embeddings 端点</span>
+              </div>
+              <input type="text" id="model-embedding-url" placeholder="https://api.openai.com/v1/embeddings" class="styled-input">
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-label">API Key</span>
+                <span class="setting-desc">留空则复用 Provider 的 Key</span>
+              </div>
+              <input type="password" id="model-embedding-key" placeholder="sk-..." class="styled-input">
+            </div>
+            <button id="btn-save-model" class="btn-primary">保存设置</button>
+            <span id="model-status" class="status-msg"></span>
+          </div>
+        </div>
+        <div id="tab-knowledge" class="tab-content">
+          <div class="kb-layout">
+            <div class="kb-sidebar">
+              <div class="kb-create-row">
+                <input type="text" id="kb-new-name" placeholder="新建知识库..." class="styled-input">
+                <button id="btn-kb-create" class="btn-primary btn-sm">新建</button>
+              </div>
+              <div id="kb-list" class="kb-list"><p class="hint" style="padding:20px;text-align:center">加载中...</p></div>
+            </div>
+            <div class="kb-main" id="kb-main">
+              <div class="kb-empty" id="kb-empty">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" style="color:var(--text-dim);margin-bottom:12px"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M14 8l3 3-3 3M14 16v-8"/></svg>
+                <p>选择一个知识库查看详情</p>
+                <p style="font-size:11px;color:var(--text-dim);margin-top:4px">知识库可存储文档并通过 AI 检索引用</p>
+              </div>
+              <div id="kb-detail" style="display:none;flex:1;flex-direction:column;overflow:hidden">
+                <!-- 知识库头部 -->
+                <div class="kb-detail-header">
+                  <div class="kb-icon-tag" id="kb-mode-badge">V</div>
+                  <div>
+                    <div id="kb-detail-name" style="font-size:16px;font-weight:600;margin-bottom:2px"></div>
+                    <div id="kb-detail-stats" style="font-size:11px;color:var(--text-dim)"></div>
+                  </div>
+                  <div style="margin-left:auto;display:flex;gap:6px">
+                    <button id="btn-kb-rename" class="btn-sm">重命名</button>
+                    <button id="btn-kb-del" class="btn-sm" style="color:var(--danger)">删除</button>
+                  </div>
+                </div>
+                <!-- 标签切换 -->
+                <div class="kb-tab-nav">
+                  <button class="kb-nav-btn active" data-kbtab="docs">文档</button>
+                  <button class="kb-nav-btn" data-kbtab="upload">上传</button>
+                  <button class="kb-nav-btn" data-kbtab="settings">设置</button>
+                  <button class="kb-nav-btn" data-kbtab="test">检索测试</button>
+                </div>
+                <!-- 标签：文档 -->
+                <div id="kb-panel-docs" class="kb-panel">
+                  <div class="kb-search-bar">
+                    <input type="text" id="kb-search-query" placeholder="搜索知识库..." class="styled-input">
+                    <button id="btn-kb-search" class="btn-primary btn-sm">搜索</button>
+                  </div>
+                  <div id="kb-search-results" class="kb-results" style="display:none"></div>
+                  <p id="kb-docs-empty" class="hint" style="display:none;padding:12px">暂无文档，使用「上传」标签导入文件</p>
+                  <div class="kb-docs-section">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+                      <h4 style="margin:0">文档</h4>
+                      <button class="btn-sm" onclick="settings._switchKBTab('upload')">+ 上传</button>
+                    </div>
+                    <div id="kb-docs-list"></div>
+                  </div>
+                  <!-- 文档详情 -->
+                  <div id="kb-doc-detail" style="display:none">
+                    <button id="btn-kb-doc-back" class="btn-sm" style="margin-bottom:12px">← 返回文档列表</button>
+                    <div class="kb-doc-detail-header">
+                      <div>
+                        <div id="kb-doc-detail-name" style="font-size:16px;font-weight:600;margin-bottom:2px"></div>
+                        <div id="kb-doc-detail-stats" style="font-size:11px;color:var(--text-dim)"></div>
+                      </div>
+                      <div style="display:flex;gap:6px;align-items:center">
+                        <label class="kb-doc-cite-toggle">
+                          <span style="font-size:12px;color:var(--text-dim);margin-right:4px">引用</span>
+                          <span class="toggle-switch" id="kb-doc-autocite"></span>
+                        </label>
+                        <select id="kb-doc-citefmt" class="styled-select" style="font-size:11px;width:auto">
+                          <option value="inline">内联</option>
+                          <option value="footnote">脚注</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="kb-setting-divider" style="margin:10px 0"></div>
+                    <div class="kb-doc-content-preview" id="kb-doc-content-preview"></div>
+                    <h4 style="font-size:13px;margin:12px 0 8px">索引分段</h4>
+                    <div id="kb-doc-chunks-list"></div>
+                  </div>
+                </div>
+                <!-- 标签：上传（独立界面） -->
+                <div id="kb-panel-upload" class="kb-panel" style="display:none">
+                  <div class="kb-upload-steps">
+                    <div class="kb-step active" data-step="1"><span class="step-num">1</span><span class="step-label">选择文件</span></div>
+                    <div class="kb-step-arrow"></div>
+                    <div class="kb-step" data-step="2"><span class="step-num">2</span><span class="step-label">预览确认</span></div>
+                    <div class="kb-step-arrow"></div>
+                    <div class="kb-step" data-step="3"><span class="step-num">3</span><span class="step-label">索引处理</span></div>
+                  </div>
+                  <div id="kb-upload-step1" class="kb-upload-panel">
+                    <div class="kb-dropzone" id="kb-dropzone">
+                      <div class="dropzone-icon">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 16V4M12 4L8 8M12 4L16 8"/><path d="M20 16v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2"/></svg>
+                      </div>
+                      <p class="dropzone-text">拖拽文件到此处，或点击选择</p>
+                      <p class="dropzone-hint">支持 PDF, DOCX, TXT, MD, CSV, 代码文件 · 单文件最大 15MB</p>
+                      <button id="btn-kb-browse" class="btn-primary">选择文件</button>
+                      <input type="file" id="kb-file-input" multiple accept=".txt,.md,.pdf,.docx,.csv,.py,.js,.ts,.jsx,.tsx,.html,.css,.json,.yaml,.yml,.xml,.sh,.bat,.java,.c,.cpp,.h,.rs,.go,.rb,.php,.sql" style="display:none">
+                    </div>
+                    <div id="kb-file-list" class="kb-file-list" style="display:none">
+                      <div class="kb-file-list-header">
+                        <span class="file-count" id="kb-file-count">0 个文件</span>
+                        <button class="btn-sm" id="btn-kb-clear-files">清空</button>
+                      </div>
+                      <div id="kb-file-items"></div>
+                      <button id="btn-kb-next" class="btn-primary" style="width:100%;margin-top:16px" disabled>下一步</button>
+                      <p style="font-size:11px;color:var(--text-dim);text-align:center;margin-top:8px">可在知识库设置中调整分段参数</p>
+                    </div>
+                  </div>
+                  <div id="kb-upload-step2" class="kb-upload-panel" style="display:none">
+                    <div class="kb-preview-layout">
+                      <div class="kb-preview-list" id="kb-preview-list"></div>
+                      <div class="kb-preview-content" id="kb-preview-content">
+                        <p class="hint" style="padding:40px;text-align:center">点击左侧文件预览内容</p>
+                      </div>
+                    </div>
+                    <div class="kb-chunk-settings">
+                      <label>分段大小（字符）：</label>
+                      <input type="number" id="kb-chunk-size" value="1000" min="200" max="3000" class="styled-input" style="width:100px">
+                      <span style="font-size:11px;color:var(--text-dim);margin-left:8px">越大越完整，越小越精确</span>
+                    </div>
+                    <div class="kb-step-buttons">
+                      <button id="btn-kb-back" class="btn-sm">上一步</button>
+                      <button id="btn-kb-start" class="btn-primary">开始索引</button>
+                    </div>
+                  </div>
+                  <div id="kb-upload-step3" class="kb-upload-panel" style="display:none">
+                    <div class="kb-progress-section">
+                      <div class="kb-progress-bar-wrap">
+                        <div class="kb-progress-bar" id="kb-progress-bar"></div>
+                      </div>
+                      <p class="kb-progress-text" id="kb-progress-text">准备中...</p>
+                      <div id="kb-progress-detail" class="kb-progress-detail"></div>
+                    </div>
+                    <div id="kb-process-results" style="display:none;margin-top:16px">
+                      <h4>处理完成</h4>
+                      <div id="kb-process-results-list"></div>
+                      <button id="btn-kb-done" class="btn-primary" style="width:100%;margin-top:12px">返回文档列表</button>
+                    </div>
+                  </div>
+                </div>
+                <!-- 标签：设置 -->
+                <div id="kb-panel-settings" class="kb-panel" style="display:none">
+                  <div class="kb-settings-form">
+                    <div class="kb-setting-group">
+                      <label class="kb-setting-label">名称</label>
+                      <input type="text" id="kb-settings-name" class="styled-input" style="width:100%">
+                    </div>
+                    <div class="kb-setting-group">
+                      <label class="kb-setting-label">描述</label>
+                      <textarea id="kb-settings-desc" class="styled-textarea" rows="2" style="width:100%"></textarea>
+                    </div>
+                    <div class="kb-setting-divider"></div>
+                    <h4 style="font-size:13px;margin:0 0 12px">检索设置</h4>
+                    <div class="kb-setting-group">
+                      <label class="kb-setting-label">检索方式</label>
+                      <select id="kb-settings-method" class="styled-select" style="width:100%">
+                        <option value="vector">向量检索（语义匹配）</option>
+                        <option value="tfidf">全文检索（关键词匹配）</option>
+                        <option value="hybrid">混合检索（推荐）</option>
+                      </select>
+                    </div>
+                    <div class="kb-setting-row">
+                      <div class="kb-setting-group" style="flex:1">
+                        <label class="kb-setting-label">Top K <span class="kb-setting-val" id="kb-val-topk">3</span></label>
+                        <input type="range" id="kb-settings-topk" min="1" max="20" value="3" class="styled-range" style="width:100%">
+                      </div>
+                      <div class="kb-setting-group" style="flex:1">
+                        <label class="kb-setting-label">分数阈值 <span class="kb-setting-val" id="kb-val-score">0.30</span></label>
+                        <input type="range" id="kb-settings-score" min="0" max="1" step="0.05" value="0.3" class="styled-range" style="width:100%">
+                      </div>
+                    </div>
+                    <div class="kb-setting-row">
+                      <div class="kb-setting-group" style="flex:1">
+                        <label class="kb-setting-label">分段大小</label>
+                        <input type="number" id="kb-settings-chunk" min="200" max="3000" step="50" value="1000" class="styled-input" style="width:100%">
+                      </div>
+                      <div class="kb-setting-group" style="flex:1">
+                        <label class="kb-setting-label">分段重叠</label>
+                        <input type="number" id="kb-settings-overlap" min="0" max="500" step="10" value="80" class="styled-input" style="width:100%">
+                      </div>
+                    </div>
+                    <p style="font-size:11px;color:var(--text-dim);margin:4px 0 0">文档级引用控制在文档详情中设置</p>
+                    <button id="btn-kb-save-settings" class="btn-primary" style="margin-top:16px">保存设置</button>
+                    <button id="btn-kb-reindex" class="btn-sm" style="margin-left:8px">重建索引</button>
+                    <span id="kb-settings-status" class="status-msg"></span>
+                  </div>
+                </div>
+                <!-- 标签：检索测试 -->
+                <div id="kb-panel-test" class="kb-panel" style="display:none">
+                  <div class="kb-test-box">
+                    <p style="font-size:12px;color:var(--text-dim);margin:0 0 8px">输入查询文本，测试知识库检索效果</p>
+                    <div class="kb-search-bar" style="margin-bottom:6px">
+                      <input type="text" id="kb-test-query" placeholder="输入测试查询..." class="styled-input">
+                      <button id="btn-kb-test" class="btn-primary btn-sm">检索</button>
+                    </div>
+                    <div id="kb-test-results"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div id="tab-general" class="tab-content">
+          <div class="general-form">
+            <label>默认工作空间
+              <div style="display:flex;gap:6px">
+                <input type="text" id="default-workspace-path" placeholder="未设置" style="flex:1">
+                <button id="btn-pick-default-ws" class="btn-sm" title="选择文件夹">...</button>
+              </div>
+              <span class="hint-text">设置后新建任务时默认使用此路径作为工作空间</span>
+            </label>
+            <div class="theme-toggle-row">
+              <span class="theme-toggle-label">主题模式</span>
+              <div class="theme-toggle-switch">
+                <button id="theme-light-btn" class="theme-option active" onclick="document.documentElement.dataset.theme='';document.getElementById('theme-light-btn').classList.add('active');document.getElementById('theme-dark-btn').classList.remove('active');api.setPref('theme','')">亮色</button>
+                <button id="theme-dark-btn" class="theme-option" onclick="document.documentElement.dataset.theme='dark';document.getElementById('theme-dark-btn').classList.add('active');document.getElementById('theme-light-btn').classList.remove('active');api.setPref('theme','dark')">暗色</button>
+              </div>
+            </div>
+            <div style="margin-top:16px">
+              <span style="font-size:12px;color:var(--text-dim)">主题风格</span>
+              <div id="theme-picker" style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap"></div>
+            </div>
+          </div>
+        </div>
+        <div class="tab-content" id="tab-persona" data-tab="persona">
+          <h3>人设管理</h3>
+          <p class="hint-text" style="margin-bottom:12px">创建不同的 AI 人设，切换后自动影响回复风格。默认人设不可删除。</p>
+          <div id="persona-form" style="display:none;margin-bottom:16px;padding:12px;background:var(--bg3);border-radius:var(--radius);border:1px solid var(--border)">
+            <input type="hidden" id="persona-edit-id">
+            <label>名称<input type="text" id="persona-name" placeholder="如: Python 专家" style="width:100%"></label>
+            <label>ID (英文)<input type="text" id="persona-id-input" placeholder="如: python-expert" style="width:100%"></label>
+            <label>系统提示词 <textarea id="persona-prompt" rows="4" placeholder="描述这个人设的行为、语气、知识范围..." style="width:100%"></textarea></label>
+            <div style="display:flex;gap:6px;margin-top:8px">
+              <button id="btn-persona-save" class="btn-primary">保存</button>
+              <button id="btn-persona-cancel" class="btn-sm">取消</button>
+            </div>
+          </div>
+          <button id="btn-persona-new" class="btn-sm">+ 新建人设</button>
+          <div id="persona-list" style="margin-top:12px"></div>
+        </div>
+        <div class="tab-content" id="tab-skills" data-tab="skills">
+          <div id="skills-main"></div>
+          <div id="skills-detail" style="display:none"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 隐藏的系统文件夹选择器 -->
+  <input type="file" id="native-folder-picker" webkitdirectory hidden>
+
+  <script>
+    // 全局兜底：防止 chat is not defined
+    var chat;
+    // 工作空间选择
+    window.pickWorkspace = async function() {
+      var wsBar = document.getElementById("ws-bar");
+      if (!window.electronAPI || !window.electronAPI.pickFolder) {
+        document.getElementById("native-folder-picker").click();
+        return;
+      }
+      if (wsBar) wsBar.textContent = '选择文件夹...';
+      var path = await window.electronAPI.pickFolder();
+      if (wsBar) wsBar.textContent = path ? path : '默认工作空间';
+      if (path && typeof app !== 'undefined') {
+        app.workspacePath = path;
+        if (typeof sidebar !== 'undefined') sidebar.addWorkspace(path);
+      }
+    };
+    // 全局 JS 错误捕获 → 显示到页面（无需 devtools）
+    window.onerror = function(msg, src, line, col, err) {
+      let el = document.getElementById('js-error-toast');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'js-error-toast';
+        el.style.cssText = 'position:fixed;top:8px;left:50%;transform:translateX(-50%);background:#ef4444;color:#fff;padding:8px 16px;border-radius:8px;font-size:12px;z-index:99999;max-width:90%;word-break:break-all';
+        document.body.appendChild(el);
+      }
+      var file = src ? src.split('/').pop() : '?';
+      el.textContent = '[JS错误] ' + file + ':' + line + ' ' + String(msg).slice(0,150);
+      el.style.display = '';
+      setTimeout(()=>{ if(el) el.style.display='none'; }, 10000);
+    };
+    // 未处理的 Promise rejection — 显示在独立位置
+    window.onunhandledrejection = function(e) {
+      let el = document.getElementById('promise-error-toast');
+      if (!el) { el = document.createElement('div'); el.id='promise-error-toast'; el.style.cssText='position:fixed;top:50px;left:50%;transform:translateX(-50%);background:#f97316;color:#fff;padding:10px 18px;border-radius:8px;font-size:11px;z-index:99999;max-width:95%;word-break:break-all;line-height:1.5;white-space:pre-wrap'; document.body.appendChild(el); }
+      var msg = String(e.reason || e);
+      if (e.reason && e.reason.stack) msg = e.reason.stack.substring(0, 600);
+      el.textContent = '[Promise] ' + msg;
+      el.style.display = '';
+      setTimeout(()=>{ if(el) el.style.display='none'; }, 15000);
+    };
+  </script>
+  <script src="/js/api.js"></script>
+  <script src="/js/sidebar.js"></script>
+  <script src="/js/chat.js"></script>
+  <script src="/js/trace.js"></script>
+  <script src="/js/metrics.js"></script>
+  <script src="/js/settings.js"></script>
+  <script src="/js/skills.js"></script>
+  <script src="/js/app.js"></script>
+  <script src="/assets/highlight.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    if (typeof WELCOME_MSG !== "undefined") {
+      var el = document.getElementById("welcome-text");
+      if (el) el.textContent = WELCOME_MSG;
+    }
+    // 导出功能
+    function doExport(format) {
+      var o = document.getElementById("export-options");
+      if (o) o.style.display = "none";
+
+      // 完整调试包：从内存消息 + DOM 中提取所有信息
+      if (format === "debug") {
+        var deb = {};
+
+        // 1. 对话元数据
+        deb.exportTime = new Date().toISOString();
+        deb.conversationId = (window.chat && window.chat.currentConversationId) || "N/A";
+        var modelVal = (document.getElementById("model-select") || {}).value || "N/A";
+        deb.provider = modelVal.includes(":") ? modelVal.split(":")[0] : "N/A";
+        deb.model = modelVal.includes(":") ? modelVal.split(":")[1] : modelVal;
+        deb.workspace = (window.app && window.app.workspacePath) || "N/A";
+        deb.project = (window.app && window.app.getCurrentProject && window.app.getCurrentProject()) || "N/A";
+
+        // 2. 完整消息历史（含 tool_calls、reasoning）
+        if (window.chat && window.chat.messages) {
+          deb.messages = window.chat.messages.map(function(m) {
+            var item = { role: m.role, content: (m.content || "").substring(0, 5000) };
+            if (m.tool_calls) item.tool_calls = m.tool_calls;
+            if (m.reasoning) item.reasoning = m.reasoning.substring(0, 3000);
+            if (m.tool_call_id) item.tool_call_id = m.tool_call_id;
+            return item;
+          });
+        } else {
+          deb.messages = [];
+        }
+
+        // 3. DOM 中的工具卡片和推理块
+        var domItems = [];
+        var msgEls = document.querySelectorAll("#chat-messages .message.assistant");
+        for (var i = 0; i < msgEls.length; i++) {
+          var m = msgEls[i];
+          var item = { index: i };
+          // 推理块
+          var reasons = m.querySelectorAll(".reasoning-block pre");
+          if (reasons.length) {
+            item.reasoning_blocks = [];
+            for (var j = 0; j < reasons.length; j++) {
+              item.reasoning_blocks.push(reasons[j].textContent.substring(0, 2000));
+            }
+          }
+          // 工具卡片
+          var cards = m.querySelectorAll(".tool-card");
+          if (cards.length) {
+            item.tool_cards = [];
+            for (var k = 0; k < cards.length; k++) {
+              var card = cards[k];
+              item.tool_cards.push({
+                name: (card.getAttribute("data-tool") || (card.querySelector(".tool-card-title") || {}).textContent || "?"),
+                summary: (card.querySelector(".tool-card-summary") || {}).textContent || "",
+                result: (card.querySelector(".tool-card-result pre") || {}).textContent || ""
+              });
+            }
+          }
+          // 最终回复文字
+          var textEl = m.querySelector(".message-content span:last-child, .message-content");
+          if (textEl) item.final_text = textEl.textContent.trim().substring(0, 3000);
+          domItems.push(item);
+        }
+        deb.dom_detail = domItems;
+
+        // 4. 错误
+        var errEls = document.querySelectorAll("[style*='var(--danger)']");
+        if (errEls.length) {
+          deb.errors = [];
+          for (var ei = 0; ei < errEls.length; ei++) {
+            deb.errors.push(errEls[ei].textContent.substring(0, 500));
+          }
+        }
+
+        // 5. 流状态
+        deb.isStreaming = (window.chat && window.chat.isStreaming) || false;
+
+        // 6. 异步获取后端诊断信息后下载
+        fetch("/api/diagnostics").then(function(r) { return r.json(); }).then(function(d) {
+          deb.diagnostics = d;
+          var c2 = JSON.stringify(deb, null, 2);
+          downloadFile(c2, "Maona_debug_" + deb.exportTime.slice(0, 10) + ".json");
+        }).catch(function() {
+          deb.diagnostics = { error: "无法连接后端" };
+          var c2 = JSON.stringify(deb, null, 2);
+          downloadFile(c2, "Maona_debug_" + deb.exportTime.slice(0, 10) + ".json");
+        });
+      }
+
+      // 普通导出
+      var msgs = [];
+      var msgEls2 = document.querySelectorAll("#chat-messages .message");
+      for (var i2 = 0; i2 < msgEls2.length; i2++) {
+        var m2 = msgEls2[i2];
+        var role = m2.classList.contains("user") ? "user" : "assistant";
+        var content = "";
+        var spans = m2.querySelectorAll(".message-content > span:last-child");
+        if (spans.length) content = spans[0].textContent.trim();
+        else content = (m2.querySelector(".message-content") || {}).textContent ? m2.querySelector(".message-content").textContent.trim() : "";
+        if (!content) continue;
+        msgs.push({ role: role, content: content });
+      }
+      if (!msgs.length) { alert("无内容"); return; }
+
+      var n = new Date().toISOString().slice(0, 10);
+      var c2 = "";
+      if (format === "json") {
+        c2 = JSON.stringify(msgs, null, 2);
+      } else if (format === "markdown") {
+        c2 = msgs.map(function(x) { return (x.role === "user" ? "### 我\n\n" : "### Maona\n\n") + x.content + "\n"; }).join("\n---\n\n");
+      } else {
+        c2 = msgs.map(function(x) { return (x.role === "user" ? "[我] " : "[Maona] ") + x.content; }).join("\n\n");
+      }
+      downloadFile(c2, "Maona_" + n + "." + (format === "json" ? "json" : "md"));
+    }
+
+    function downloadFile(content, filename) {
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob(["\uFEFF" + content], { type: "text/plain" }));
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function() { document.body.removeChild(a); URL.revokeObjectURL(a.href); }, 100);
+    }
+
+    // 上传按钮菜单
+    window.toggleAttachMenu = function(e) {
+      e.stopPropagation();
+      var menu = document.getElementById("attach-menu");
+      menu.style.display = menu.style.display === "none" ? "block" : "none";
+    };
+    document.addEventListener("click", function() {
+      var menu = document.getElementById("attach-menu");
+      if (menu) menu.style.display = "none";
+    });
+
+    // 文件上传预览
+    window.showAttachmentPreview = function(input) {
+      var files = input.files;
+      if (!files.length) return;
+      var preview = document.getElementById("drop-preview");
+      var filesDiv = document.getElementById("drop-files");
+      preview.style.display = "block";
+      var html = "";
+      for (var i = 0; i < files.length; i++) {
+        var f = files[i];
+        var name = (f.webkitRelativePath || f.name).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+        html += '<div class="drop-file-item"><span>' + name + '</span><span class="file-remove" onclick="this.parentElement.remove();if(!document.querySelector(\'.drop-file-item\'))document.getElementById(\'drop-preview\').style.display=\'none\'">x</span></div>';
+      }
+      filesDiv.innerHTML = html;
+      // 同时追加到输入框
+      var chatInput = document.getElementById("chat-input");
+      if (chatInput && window.chat && window.chat._uploadedFiles) {
+        for (var i = 0; i < files.length; i++) {
+          window.chat._uploadedFiles.push(files[i]);
+        }
+      }
+    };
+    document.getElementById("file-input").addEventListener("change", function() { window.showAttachmentPreview(this); this.value = ""; });
+    document.getElementById("folder-input").addEventListener("change", function() { window.showAttachmentPreview(this); this.value = ""; });
+  </script>
+</body>
+</html>

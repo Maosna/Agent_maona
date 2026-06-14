@@ -1,0 +1,22 @@
+[
+  {
+    "id": "ee9215f0",
+    "subject": "添加 stats.py 统计模块 + 优先级支持 + 更新 main.py",
+    "description": "",
+    "steps": [
+      "1. 更新 storage.py：create_task 添加 priority 参数，任务字典追加 priority 字段",
+      "2. 创建 stats.py：实现已完成/未完成统计 + 按优先级分类统计",
+      "3. 更新 main.py：添加统计菜单选项（选项 5）和 cmd_stats 函数",
+      "4. 验证模块导入和功能正确"
+    ],
+    "current_step": 4,
+    "status": "in_progress",
+    "created": "17:04:55",
+    "notes": [
+      "[17:04:57] 更新 storage.py 添加 priority 支持",
+      "[17:05:04] 创建 stats.py 统计模块",
+      "[17:05:16] 更新 main.py 添加统计菜单",
+      "[17:05:27] 验证模块导入和功能正确"
+    ]
+  }
+]

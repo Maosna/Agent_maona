@@ -1,0 +1,29 @@
+[
+  {
+    "id": "c382371f",
+    "subject": "Galgame 项目：场景1 部署 + 创建",
+    "description": "创建 Godot Galgame 视觉小说项目。步骤：① godot-deploy 部署编辑器 ② godot-new 创建项目 ③ 验证项目完整性 ④ 编写 Galgame 核心脚本",
+    "steps": [
+      "godot-deploy: 检查 Node.js",
+      "godot-deploy: 检查/构建 MCP Server",
+      "godot-deploy: 确认 mcp_config.json",
+      "godot-deploy: 下载 Godot 编辑器到 godot-editor/",
+      "godot-deploy: 启动 Godot + 9080 探测",
+      "godot-new: 创建 galgame 项目",
+      "验证项目完整性 (validate_gdscript + check_godot_project)",
+      "编写 Galgame 核心系统脚本（对话管理器、存档系统等）"
+    ],
+    "current_step": 8,
+    "status": "completed",
+    "created": "00:30:38",
+    "notes": [
+      "[00:30:41] 检查 Node.js 版本",
+      "[00:30:50] 步骤 2-3 完成，准备下载编辑器",
+      "[00:31:02] 下载 Godot 编辑器到 F:\\游戏\\项目\\0\\godot-editor\\",
+      "[00:32:05] 编辑器下载完成，开始创建 galgame 项目",
+      "[00:32:52] 项目创建完成，启动编辑器，验证中",
+      "[00:33:03] 编写 Galgame 核心系统脚本",
+      "[00:34:59] 全部 8 步完成，项目框架 + 核心系统就绪"
+    ]
+  }
+]

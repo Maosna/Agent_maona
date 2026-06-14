@@ -1,0 +1,25 @@
+[
+  {
+    "id": "bf60736d",
+    "subject": "Galgame 视觉小说项目开发",
+    "description": "为 galgame 项目创建完整的视觉小说系统：对话管理、角色立绘、背景切换、分支选项、存档、UI等。",
+    "steps": [
+      "创建游戏状态 Autoload（game_state.gd）",
+      "创建对话管理器 Autoload（dialogue_manager.gd）",
+      "创建存档系统（save_system.gd）",
+      "创建角色立绘控制器",
+      "创建对话UI脚本",
+      "创建第一章示例对话数据",
+      "创建主场景脚本",
+      "配置 project.godot autoload",
+      "用 build_godot_scene 创建场景树"
+    ],
+    "current_step": 9,
+    "status": "completed",
+    "created": "22:36:52",
+    "notes": [
+      "[22:38:58] 核心脚本已创建，正在配置 project.godot Autoload",
+      "[22:39:38] 所有核心系统文件已就绪，等待用户启用 GodotMCP 插件后 build_godot_scene"
+    ]
+  }
+]

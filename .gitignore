@@ -1,0 +1,47 @@
+# Node modules (all locations)
+node_modules/
+**/node_modules/
+
+# Build output
+dist/
+build/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+backend/.session_token
+backend/$null
+backend/.maona/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Maona internal data
+.maona/
+.workbuddy/
+.codebuddy/
+.godot-mcp/
+
+# User-specific state (auto-regenerated)
+data/skills/state.json
+
+# Large binaries (download separately or via Release)
+tesseract/
+
+# Screenshots
+screenshots/
+
+# Test environment user data
+test_env/data/
+test_env/test_output/
+test_workspace/
+
+# Debug artifacts
+docs/known_bugs.json
+docs/decision.json

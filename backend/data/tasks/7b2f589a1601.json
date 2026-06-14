@@ -1,0 +1,49 @@
+[
+  {
+    "id": "3fdfb461",
+    "subject": "用 Godot 创建 Galgame（视觉小说）项目",
+    "description": "从零开始：部署 Godot 编辑器 → 创建 Galgame 项目 → 搭建视觉小说核心系统（对话/存档/UI）",
+    "steps": [
+      "环境探测 & 场景判定",
+      "部署 Godot 编辑器到工作区",
+      "创建 Galgame 项目（godot-new）",
+      "搭建 Galgame 核心场景（主界面/对话系统/存档）",
+      "编写核心脚本（DialogueManager/SaveSystem）",
+      "项目校验（validate_gdscript + check_godot_project）",
+      "引导用户打开 Godot 编辑器启用插件"
+    ],
+    "current_step": 7,
+    "status": "completed",
+    "created": "16:31:18",
+    "notes": [
+      "[16:31:22] 环境空，hasProject=false，判定为场景1 make_game",
+      "[16:32:53] Godot v4.6.3 编辑器已下载到 godot-editor/",
+      "[16:33:00] 创建 galgame 项目，模板 empty",
+      "[16:34:34] MCP 9080 就绪，开始搭建 Galgame 核心系统",
+      "[16:37:52] 核心脚本+场景+数据全部完成，校验通过",
+      "[16:38:35] 全部完成，Godot 编辑器已启动等待用户启用插件"
+    ]
+  },
+  {
+    "id": "41925a0c",
+    "subject": "构建完整 Galgame 视觉小说项目",
+    "description": "在已有 galgame 空壳项目中填充完整的 Galgame 系统：Autoload 脚本（DialogueManager/SaveManager/GameManager）、主菜单场景、对话UI场景、示例对话数据",
+    "steps": [
+      "创建 Autoload 脚本（dialogue_manager.gd, save_manager.gd, game_manager.gd）",
+      "创建主菜单场景 main_menu.tscn",
+      "创建对话 UI 场景 dialogue_ui.tscn",
+      "创建示例对话数据 JSON",
+      "验证项目完整性（validate_gdscript + check_godot_project）"
+    ],
+    "current_step": 5,
+    "status": "completed",
+    "created": "16:42:31",
+    "notes": [
+      "[16:42:40] 开始创建三个 Autoload 脚本",
+      "[16:43:57] 尝试用 build_godot_scene 创建主菜单场景",
+      "[16:45:10] 先创建示例对话数据和 UI 控制脚本，场景通过 WebSocket 创建",
+      "[16:47:09] 验证 GDScript + TSCN + 项目结构",
+      "[16:47:36] 全部完成：Autoload脚本、场景、对话数据、资源、验证通过"
+    ]
+  }
+]

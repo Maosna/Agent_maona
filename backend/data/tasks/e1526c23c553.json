@@ -1,0 +1,23 @@
+[
+  {
+    "id": "b3337138",
+    "subject": "搭建 Galgame 核心系统",
+    "description": "创建对话管理、存档系统、UI对话框、主场景和对话数据格式",
+    "steps": [
+      "创建 DialogueManager Autoload 脚本",
+      "创建 SaveSystem Autoload 脚本",
+      "创建 DialogueBox UI 场景和脚本",
+      "创建主场景 main.tscn",
+      "配置 project.godot Autoload",
+      "创建示例对话数据 JSON",
+      "验证项目完整性"
+    ],
+    "current_step": 7,
+    "status": "completed",
+    "created": "20:38:09",
+    "notes": [
+      "[20:41:21] 运行验证",
+      "[20:43:05] 全部 7 步完成，validate_gdscript + check_godot_project 通过"
+    ]
+  }
+]

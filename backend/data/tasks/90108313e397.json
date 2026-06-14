@@ -1,0 +1,46 @@
+[
+  {
+    "id": "f8b89367",
+    "subject": "搭建 Godot Galgame 视觉小说系统",
+    "description": "在 F:\\游戏\\项目\\0\\galgame 中搭建完整的 Galgame 系统，包括对话系统、立绘管理、分支选择、存档读档、主菜单等核心功能。",
+    "steps": [
+      "修正 project.godot 项目名",
+      "启动 Godot 编辑器并启用 MCP 插件",
+      "创建项目目录结构（scenes/scripts/assets/data 子目录）",
+      "搭建主菜单场景（开始/继续/设置/退出）",
+      "实现对话管理器 Autoload（文本逐字显示、立绘切换、背景切换）",
+      "实现存档系统（多槽位存档/读档）",
+      "实现分支选择 UI",
+      "创建示例对话场景验证流程",
+      "全面校验（validate_gdscript + check_godot_project）"
+    ],
+    "current_step": 9,
+    "status": "completed",
+    "created": "18:24:15",
+    "notes": [
+      "[18:24:24] project.godot 项目名已修正，目录结构已创建",
+      "[18:27:10] Godot 编辑器已启动，MCP 插件 9080 就绪",
+      "[18:30:21] Galgame 项目搭建完成，校验通过"
+    ]
+  },
+  {
+    "id": "f3d736a8",
+    "subject": "修复 Galgame 项目 F5 运行报错",
+    "description": "诊断并修复所有运行时错误，让 Galgame 项目能正常启动",
+    "steps": [
+      "修复 project.godot UTF-8 BOM 编码问题",
+      "修复所有 TSCN 场景缺少 unique_name_in_owner 导致 %NodeName 引用为 null",
+      "验证 chapter1.json 数据格式",
+      "检查 assets 目录是否有缺失资源",
+      "最终验证项目完整性"
+    ],
+    "current_step": 5,
+    "status": "completed",
+    "created": "18:33:28",
+    "notes": [
+      "[18:33:46] 开始修复 project.godot BOM + 检查 assets",
+      "[18:35:04] TSCN unique_name_in_owner 全部添加完成，开始验证",
+      "[18:36:36] 全部修复完成：BOM + unique_name_in_owner + scene script + assets 占位"
+    ]
+  }
+]

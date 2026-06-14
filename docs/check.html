@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Maona</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- ===== 左侧工作空间面板 ===== -->
+    <aside id="sidebar">
+      <div class="sidebar-top">
+        <button id="btn-new-task" class="btn-new-chat">+ 新任务</button>
+      </div>
+
+      <div class="sidebar-scroll">
+        <div class="ws-tree" id="ws-tree">
+          <p class="loading">加载中...</p>
+        </div>
+      </div>
+
+      <div class="sidebar-bottom">
+        <button class="nav-btn" data-page="settings">⚙️ 设置</button>
+        <div class="sidebar-footer">
+          <span id="backend-status" class="status-dot offline"></span>
+          <span class="status-text">Maona v0.5</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ===== 主区域 ===== -->
+    <main id="main">
+      <div id="drop-overlay" class="drop-overlay" style="display:none">
+        <div class="drop-zone"><span class="drop-icon">📎</span><p>释放文件以发送</p></div>
+      </div>
+
+      <section id="page-chat" class="page active">
+        <div class="chat-topbar">
+          <div class="model-selector">
+            <select id="model-select"><option value="">加载中...</option></select>
+          </div>
+          <div id="conv-dropdown" class="conv-dropdown">
+            <button id="btn-toggle-convs" class="btn-sm">历史 ▾</button>
+            <div id="conv-drop-list" class="conv-drop-list" style="display:none">
+              <p class="loading">加载中...</p>
+            </div>
+          </div>
+        </div>
+
+        <div id="chat-messages" class="chat-messages">
+          <div class="welcome-msg">
+            <h2>Maona</h2>
+            <p>精简 AI 办公助手</p>
+            <p class="hint">在左侧选择或添加工作空间，然后开始对话</p>
+          </div>
+        </div>
+
+        <div class="chat-input-area">
+          <div id="drop-preview" class="drop-preview" style="display:none">
+            <div id="drop-files" class="drop-files"></div>
+            <button id="btn-clear-files" class="btn-icon" title="清除文件">✕</button>
+          </div>
+          <div class="input-box">
+            <textarea id="chat-input" rows="3" placeholder="输入消息或拖拽文件..." autofocus></textarea>
+            <div class="input-actions">
+              <button id="btn-file-upload" class="btn-file-upload" title="上传文件">📎</button>
+              <button id="btn-folder-upload" class="btn-file-upload" title="上传文件夹">📁</button>
+              <input type="file" id="file-input" multiple hidden accept=".txt,.md,.json,.py,.js,.html,.css,.log,.csv,.yml,.yaml,.xml,.toml,.ini,.cfg,.sh,.bat,.ps1,image/*">
+              <input type="file" id="folder-input" webkitdirectory hidden>
+              <button id="btn-send" class="btn-send" title="发送">→</button>
+            </div>
+          </div>
+          <div class="ws-bar" id="ws-bar">
+            <span id="ws-label">点击选择工作空间</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 设置页 -->
+      <section id="page-settings" class="page">
+        <div class="settings-header">
+          <h2>设置</h2>
+          <button id="btn-back-from-settings" class="btn-icon" title="返回对话">← 返回</button>
+        </div>
+        <div class="settings-tabs">
+          <button class="tab-btn active" data-tab="providers">API 管理</button>
+          <button class="tab-btn" data-tab="memory">项目记忆</button>
+          <button class="tab-btn" data-tab="general">通用</button>
+        </div>
+        <div id="tab-providers" class="tab-content active">
+          <div id="providers-list" class="providers-list"><p class="loading">加载中...</p></div>
+          <div class="provider-add">
+            <h3 id="provider-form-title">添加 API</h3>
+            <input type="hidden" id="edit-provider-name" value="">
+            <label>名称 <input type="text" id="new-provider-name" placeholder="例如: DeepSeek, GLM..."></label>
+            <label>API URL <input type="text" id="new-provider-url" placeholder="https://api.deepseek.com/v1"></label>
+            <label>API Key <input type="password" id="new-provider-key" placeholder="sk-..."></label>
+            <button id="btn-add-provider" class="btn-primary">添加</button>
+            <button id="btn-cancel-edit" class="btn-sm" style="display:none">取消编辑</button>
+            <span id="settings-status" class="status-msg"></span>
+          </div>
+        </div>
+        <div id="tab-memory" class="tab-content">
+          <div class="memory-panels">
+            <div class="memory-panel">
+              <h3>长期记忆</h3>
+              <textarea id="longterm-editor" rows="10" placeholder="记录项目的长期信息、约定、偏好..."></textarea>
+              <button id="btn-save-longterm" class="btn-sm">保存</button>
+            </div>
+            <div class="memory-panel">
+              <h3>今日日志</h3>
+              <div id="daily-log" class="daily-log"><p class="loading">加载中...</p></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="tab-general" class="tab-content">
+          <div class="general-form">
+            <label>默认工作空间路径
+              <input type="text" id="default-workspace-path" placeholder="例如: F:/工具/Agent_maona">
+              <span class="hint-text">留空则使用默认空间。新建任务时如未选择文件夹，自动使用此路径。</span>
+            </label>
+            <button id="btn-save-default-ws" class="btn-primary">保存</button>
+            <span id="general-status" class="status-msg"></span>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 隐藏的系统文件夹选择器 -->
+  <input type="file" id="native-folder-picker" webkitdirectory hidden>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/sidebar.js"></script>
+  <script src="/js/chat.js"></script>
+  <script src="/js/settings.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

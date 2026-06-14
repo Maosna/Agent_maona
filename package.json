@@ -1,0 +1,80 @@
+{
+  "name": "agent-maona",
+  "version": "0.8.0",
+  "description": "精简自用 Agent 桌面办公助手",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build:py": "powershell -ExecutionPolicy Bypass -File scripts/build-python.ps1",
+    "build": "npm run build:py && electron-builder --win",
+    "pack": "electron-builder --win --dir"
+  },
+  "author": "Maona",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.maona.agent",
+    "productName": "Maona",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/python-dist",
+        "to": "backend/python"
+      },
+      {
+        "from": "backend",
+        "to": "backend",
+        "filter": [
+          "**/*",
+          "!__pycache__/**",
+          "!*.pyc",
+          "!test_*.py",
+          "!test_*.json",
+          "!.session_token",
+          "!$null",
+          "!**/__pycache__"
+        ]
+      },
+      {
+        "from": "renderer",
+        "to": "renderer"
+      },
+      {
+        "from": "data",
+        "to": "data"
+      },
+      {
+        "from": "tesseract",
+        "to": "tesseract"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "renderer/assets/icon.png",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Maona",
+      "installerIcon": "renderer/assets/icon.png",
+      "uninstallerIcon": "renderer/assets/icon.png",
+      "installerHeaderIcon": "renderer/assets/icon.png",
+      "license": "LICENSE.txt"
+    }
+  }
+}

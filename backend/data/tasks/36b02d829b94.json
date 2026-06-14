@@ -1,0 +1,22 @@
+[
+  {
+    "id": "7255e2a2",
+    "subject": "搭建 Galgame 核心系统",
+    "description": "在 galgame 项目中创建对话系统、UI界面、存档系统和示例剧情数据",
+    "steps": [
+      "创建 DialogueManager autoload 脚本（对话状态机+分支逻辑）",
+      "创建 SaveManager autoload 脚本（多槽存档/读档）",
+      "创建示例对话数据 JSON（data/script.json）",
+      "构建主场景 main.tscn（背景+立绘+对话框+选项，通过 build_godot_scene）",
+      "创建 UI 脚本（对话框打字机效果+选项交互）",
+      "验证 GDScript + 项目完整性"
+    ],
+    "current_step": 6,
+    "status": "completed",
+    "created": "20:14:05",
+    "notes": [
+      "[20:15:36] DialogueManager + SaveManager autoload + script.json 已创建",
+      "[20:18:00] 所有脚本、场景、数据创建完成，GDScript+TSCN 验证通过"
+    ]
+  }
+]

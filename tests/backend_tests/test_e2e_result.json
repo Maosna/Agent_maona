@@ -1,0 +1,112 @@
+{
+  "passed": 21,
+  "total": 21,
+  "elapsed": 32.58397936820984,
+  "results": [
+    {
+      "name": "done 事件",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "tool_call 事件",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "零错误",
+      "ok": true,
+      "detail": " — 有 0 个错误"
+    },
+    {
+      "name": "a.txt 存在且已编辑",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "b.txt 已删除",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "至少7个不同轮次",
+      "ok": true,
+      "detail": " — 实际 8"
+    },
+    {
+      "name": "8个文件全部创建",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "10 个读取请求",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "并行高效 (<3s)",
+      "ok": true,
+      "detail": " — 0.3s"
+    },
+    {
+      "name": "触发确认请求",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "new.txt 创建成功",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "ok.txt 未被修改",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "流程正常结束",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "done 事件",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "tool_call",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "tool_result",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "token 内容",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "立即完成 (<2s)",
+      "ok": true,
+      "detail": " — 0.3s"
+    },
+    {
+      "name": "有 token 输出",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "done 事件",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "无错误",
+      "ok": true,
+      "detail": ""
+    }
+  ]
+}

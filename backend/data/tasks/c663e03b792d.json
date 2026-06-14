@@ -1,0 +1,24 @@
+[
+  {
+    "id": "2ac5d476",
+    "subject": "搭建 Godot Galgame 视觉小说系统",
+    "description": "基于 Godot 4 创建一个完整的 Galgame/视觉小说框架：对话管理、存档系统、UI 对话界面、角色立绘、分支选项",
+    "steps": [
+      "对话数据格式设计 (Resource)",
+      "对话管理器 Autoload",
+      "存档管理器 Autoload",
+      "主场景 main.tscn (用 build_godot_scene)",
+      "对话 UI 脚本",
+      "示例对话数据",
+      "场景切换与流程控制"
+    ],
+    "current_step": 7,
+    "status": "completed",
+    "created": "21:57:23",
+    "notes": [
+      "[21:59:43] 对话数据格式设计完成：DialogueData Resource，含 LINE/CHOICE/JUMP/CHAR_SHOW/BG_CHANGE 等 11 种类型",
+      "[22:00:15] 对话管理器 DialogueManager 完成：信号驱动、支持 LINE/CHOICE/JUMP/flag 条件分支、嵌套对话栈、历史记录",
+      "[22:02:48] 全部完成：对话系统(Data+Manager+UI)、存档、主场景、示例数据、project.godot 配置"
+    ]
+  }
+]

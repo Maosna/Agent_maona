@@ -1,0 +1,91 @@
+[
+  {
+    "id": "2c97b440",
+    "subject": "搭建 Godot Galgame 项目",
+    "description": "从零开始部署 Godot 编辑器 + 创建 galgame 项目 + 搭建视觉小说基础框架",
+    "steps": [
+      "环境探测（Node.js、MCP Server、编辑器、端口）",
+      "下载 Godot 编辑器到工作区",
+      "创建 galgame 项目并植入 MCP 插件",
+      "引导用户启用 MCP 插件",
+      "搭建 Galgame 视觉小说核心场景（对话框、角色立绘、选项系统）"
+    ],
+    "current_step": 4,
+    "status": "in_progress",
+    "created": "18:46:38",
+    "notes": [
+      "[18:46:42] 开始环境探测：检查 Node.js",
+      "[18:46:56] 正在获取 Godot 最新版本并下载编辑器",
+      "[18:50:36] Godot 编辑器下载完成，开始创建 galgame 项目",
+      "[18:52:36] 等待用户启用 MCP 插件，同时准备核心 GDScript 脚本",
+      "[18:53:24] 核心脚本已就绪，等待用户启用 GodotMCP 插件后搭建场景"
+    ]
+  },
+  {
+    "id": "660e4d9c",
+    "subject": "构建 Galgame 视觉小说完整游戏",
+    "description": "基于现有 galgame 空项目，构建完整视觉小说游戏：核心系统脚本、主场景、标题画面、剧情数据",
+    "steps": [
+      "创建核心 autoload 脚本：dialog_manager.gd / game_state.gd / save_manager.gd",
+      "创建剧情数据系统：JSON 格式剧情脚本 + 解析器",
+      "用 build_godot_scene 创建主游戏场景（背景+立绘+对话框+选项）",
+      "用 build_godot_scene 创建标题画面场景",
+      "创建示例剧情章节数据",
+      "更新 project.godot 配置（autoload 完善）",
+      "验证：确保所有文件就位"
+    ],
+    "current_step": 7,
+    "status": "completed",
+    "created": "18:55:35",
+    "notes": [
+      "[18:55:45] 创建核心autoload脚本",
+      "[18:56:44] autoload脚本完成，添加SaveManager到project.godot",
+      "[18:58:44] 剧情数据完成，创建主游戏场景和标题画面",
+      "[19:00:02] 创建存档/读档场景，完善项目",
+      "[19:00:07] 最终验证项目结构",
+      "[19:00:24] 全部完成！Galgame 核心系统就绪"
+    ]
+  },
+  {
+    "id": "4a1493d8",
+    "subject": "修复 galgame 项目并完善视觉小说框架",
+    "description": "1. 修复 GDScript 类型推断警告 2. 统一两套 dialog 代码 3. 确保项目可运行",
+    "steps": [
+      "定位并修复 GDScript 类型警告（Array/Dictionary 无类型参数）",
+      "统一 dialog 系统代码（autoload 与 UI 脚本使用一致 API）",
+      "创建缺失的场景文件",
+      "验证项目完整性并做 git snapshot"
+    ],
+    "current_step": 4,
+    "status": "completed",
+    "created": "19:03:09",
+    "notes": [
+      "[19:03:41] 找到 8 处 Array 无类型参数，开始批量修复",
+      "[19:05:58] 类型修复+代码统一+bug修复完成，验证中",
+      "[19:06:26] 全部完成：类型修复+代码统一+bug修复+git初始化"
+    ]
+  },
+  {
+    "id": "3caf71da",
+    "subject": "修复 galgame 项目的 GDScript 错误并完善游戏",
+    "description": "修复 Parser Error（类型推断）和 UNUSED_SIGNAL 警告，完善游戏流程确保可运行",
+    "steps": [
+      "修复 dialog_manager.gd：UNUSED_SIGNAL - 在 hide_dialog() 中发射 dialog_finished 信号",
+      "修复 game_state.gd：value/default 参数添加 Variant 类型注解",
+      "修复 main_game_loop.gd：局部变量添加类型注解，修复 _on_choice_made 中 line_index 偏移 bug",
+      "修复 story_player.gd：advance() 中 branch 命令后 line_index 偏移问题",
+      "检查所有 .gd 文件的 Array 类型参数完整性",
+      "运行代码检查确认零错误",
+      "Git 快照保存"
+    ],
+    "current_step": 7,
+    "status": "completed",
+    "created": "19:10:11",
+    "notes": [
+      "[19:10:19] 已修复 dialog_finished 信号发射",
+      "[19:11:03] 已修复 main_game_loop.gd 的类型注解和分支偏移 bug",
+      "[19:11:56] 已修复所有文件的类型注解和信号问题",
+      "[19:13:05] 所有类型注解和信号修复完成"
+    ]
+  }
+]

@@ -1,0 +1,8 @@
+{
+  "pdf_read": {
+    "enabled": true
+  },
+  "write_file": {
+    "enabled": true
+  }
+}

@@ -1,0 +1,20 @@
+[
+  {
+    "id": "4f7bfddd",
+    "subject": "优化 proposal.docx：标题格式+表格颜色+字数统计",
+    "description": "",
+    "steps": [
+      "读取 proposal.docx 当前结构",
+      "步骤1：将所有标题改为14pt加粗蓝色",
+      "步骤2：所有表格加交替行颜色",
+      "步骤3：提取文字统计字数并查姓氏",
+      "保存为 proposal_v3.docx 并验证"
+    ],
+    "current_step": 5,
+    "status": "completed",
+    "created": "02:28:22",
+    "notes": [
+      "[02:28:51] 全部完成：标题格式化+表格着色+字数统计，已保存为proposal_v3.docx"
+    ]
+  }
+]

@@ -1,0 +1,20 @@
+[
+  {
+    "id": "1964d4e1",
+    "subject": "构建 Galgame 视觉小说游戏核心系统",
+    "description": "基于现有空模板，创建完整 Galgame 系统：对话引擎、存档系统、UI 场景、剧情数据。MCP 不可用，用 GDScript + 手写场景方式实现。",
+    "steps": [
+      "创建对话管理器 DialogueManager (autoload)",
+      "创建存档管理器 SaveManager (autoload)",
+      "创建对话数据脚本与示例剧情",
+      "创建主场景 UI (对话框/背景/角色立绘)",
+      "创建剧情配置系统",
+      "验证 GDScript 语法",
+      "缓存环境并写日志"
+    ],
+    "current_step": 0,
+    "status": "in_progress",
+    "created": "22:10:15",
+    "notes": []
+  }
+]

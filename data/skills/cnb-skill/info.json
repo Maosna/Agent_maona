@@ -1,0 +1,15 @@
+{
+  "name": "cnb-skill",
+  "description": "CNB 平台全功能操作（仓库/Issue/PR/流水线/制品库/工作空间管理）",
+  "category": "devops",
+  "type": "behavior",
+  "author": "CNB",
+  "tags": [
+    "cnb",
+    "devops",
+    "ci-cd",
+    "git"
+  ],
+  "description_en": "CNB platform full operations via OpenAPI (repos, issues, PRs, pipelines, artifacts)",
+  "body": "# cnb-skill\n\n## 概括\n\n本Skill提供完整的CNB的Openapi完整交互能力，用户可以使用此skills对CNB上的资源进行操作。\n\n## 适用场景\n\n当用户描述对CNB上的资源进行操作时，应该使用此skills进行操作。例如：\n- 查询cnb上某个仓库的Issue列表\n- 对cnb上的某个仓库的Issue或者pr进行评论。\n- ...\n\n## 核心原则\n\n### 准确性原则\n- **CRITICAL**: 必须先执行 `cnb --help` 获取最新的使用方式\n- **CRITICAL**: 必须通过使用 `cnb`命令行工具，按照帮助信息执行操作\n- **CRITICAL**: 禁止推测或臆断使用方式，严格基于脚本返回的帮助信息进行操作\n- **CRITICAL**: 不要询问用户\"是否需要我执行\"，直接根据帮助信息执行脚本，并返回结果\n\n## 脚本使用指南\n\n### 第一步：获取帮助信息\n在执行任何任务前，必须先运行以下命令获取最新的使用方式：\n\n```bash\ncnb --help\n```\n\n这将显示所有可用的模块及其工具列表。\n\n### 第二步：查看具体模块帮助\n使用 `--module` 参数查看特定模块的详细帮助：\n\n```bash\ncnb --module <模块名> -help\n```\n\n### 第三步：查看工具详细使用\n使用 `--module` 和 `--tool` 参数查看工具的详细参数说明：\n\n```bash\ncnb --module <模块名> --tool <工具名> --help\n```\n\n### 第四步：执行工具\n根据第三步获取的参数说明，执行工具：\n\n```bash\ncnb --module <模块名> --tool <工具名> --path '{\"参数\": \"值\"}' --query '{\"参数\": \"值\"}' --data '{\"参数\": \"值\"}'\n```\n\n**参数说明：**\n- `--module`: 必须参数，模块名称\n- `--tool`: 必须参数，工具名称\n- `--path`: 可选参数，路径参数，JSON字符串格式\n- `--query`: 可选参数，查询参数，JSON字符串格式\n- `--data`: 可选参数，数据参数，JSON字符串格式\n- `--help`: 可选参数，显示帮助文档\n\n### 第五步：处理结果\n\n每一个工具调用都会返回一个标准的JSON结构:\n- status: 一个http状态码\n- trace: 本次调用的traceID\n- header: 本次调用的header\n- data: 本次调用的openapi返回的实体内容\n\n#### header说明\n当请求列表时，会在header中包含以下字段说明列表的情况：\n- `x-cnb-page`: 当前页数\n- `x-cnb-page-size`: 每页条数\n- `x-cnb-total`: 总条数\n\n从中可以获取到列表的总条数，以及当前页数和每页条数，避免循环请求。\n\n#### status说明\nAPI 返回标准的 JSON 格式响应。请根据 HTTP 状态码判断请求是否成功：\n\n- 200: 请求成功\n- 400: 请求参数错误\n- 401: 未授权\n- 403: 禁止访问\n- 404: 资源不存在\n- 500: 服务器内部错误\n\n当本地调用返回的 `status` 在 200 ~ 299 之间，只需要返回 `data` 内容给用户。只有当 `status >= 300` 时，才将 `status` 和 `trace` 返回给用户。\n\n#### 资源处理\n\n当尝试下载图片进行图片分析时，遇到图片下载异常时，请使用以下工具进行图片下载！\n  ```bash\n  node scripts/core/index.js assets get-imgs --help\n```"
+}

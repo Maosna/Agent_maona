@@ -1,0 +1,45 @@
+[
+  {
+    "id": "de3f95b4",
+    "subject": "创建 Godot Galgame 项目",
+    "description": "使用 godot-new 技能创建名为 galgame 的视觉小说游戏项目，基于 empty 模板",
+    "steps": [
+      "运行环境探测确认编辑器可用",
+      "执行 godot-new PowerShell 脚本创建项目",
+      "验证项目完整性 (check_godot_project + validate_gdscript)",
+      "引导用户打开 Godot 编辑器启用 MCP 插件"
+    ],
+    "current_step": 4,
+    "status": "completed",
+    "created": "16:11:48",
+    "notes": [
+      "[16:12:08] 环境探测完成，编辑器已就绪，模板和插件目录确认存在",
+      "[16:12:47] 项目创建成功，正在验证",
+      "[16:13:00] 项目创建完成，编辑器已启动，等待用户启用 MCP 插件"
+    ]
+  },
+  {
+    "id": "40908b24",
+    "subject": "搭建 Galgame 视觉小说核心系统",
+    "description": "为 galgame 项目创建完整的视觉小说核心功能：对话系统、角色立绘、背景切换、选择分支、存档读档、设置菜单、主菜单",
+    "steps": [
+      "创建项目目录结构（scenes/scripts/resources）",
+      "实现对话管理器（DialogueManager Autoload）",
+      "创建对话数据格式（DialogueData Resource）",
+      "搭建主菜单场景（MainMenu）",
+      "搭建游戏主场景（对话窗口UI+立绘+背景）",
+      "实现选择分支系统",
+      "实现存档/读档系统",
+      "创建设置菜单场景",
+      "集成测试与验证"
+    ],
+    "current_step": 9,
+    "status": "completed",
+    "created": "16:14:37",
+    "notes": [
+      "[16:14:58] 创建核心目录结构和 Autoload 脚本",
+      "[16:22:15] 所有脚本+场景已创建，开始验证",
+      "[16:26:14] 全部完成：对话系统、存档、主菜单、游戏场景、设置、选择分支、故事数据 JSON"
+    ]
+  }
+]

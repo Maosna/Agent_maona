@@ -1,0 +1,24 @@
+[
+  {
+    "id": "e15dec35",
+    "subject": "用 Godot 搭建 Galgame 视觉小说游戏",
+    "description": "场景1：空环境 → 部署 Godot 编辑器 + MCP 插件 + 创建 galgame 项目 + 构建 Galgame 核心场景",
+    "steps": [
+      "检查 Node.js",
+      "构建 MCP Server",
+      "确认 mcp_config.json",
+      "下载 Godot 编辑器",
+      "创建 galgame 项目",
+      "构建 Galgame 核心场景（主菜单+对话框+存档）",
+      "引导用户打开编辑器启用插件"
+    ],
+    "current_step": 4,
+    "status": "in_progress",
+    "created": "18:51:16",
+    "notes": [
+      "[18:51:24] Node.js v24.15.0 满足 >=18",
+      "[18:51:44] MCP Server 和 mcp_config 已就绪，开始下载 Godot 编辑器",
+      "[18:55:13] Godot v4.5-stable 下载解压完成"
+    ]
+  }
+]
