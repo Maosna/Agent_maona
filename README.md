@@ -1,6 +1,6 @@
 # Maona
 
-自用 AI 桌面助手，支持接入 DeepSeek、GLM 等任意 OpenAI 兼容 API。
+自用 AI 办公助手。
 
 ## 使用
 
@@ -17,14 +17,6 @@ npm install
 pip install -r backend/requirements.txt
 npm start
 ```
-
-打包：
-
-```bash
-npm run build
-```
-
-产物在 `dist/`。
 
 ## License
 
