@@ -102,17 +102,16 @@ def get_market_skills() -> list[dict]:
             if isinstance(source, Path) and source.exists():
                 data = json.loads(source.read_text(encoding="utf-8"))
             elif isinstance(source, str) and source.startswith("http"):
-                import asyncio
+                import asyncio, concurrent.futures
                 async def _fetch():
                     async with httpx.AsyncClient(timeout=10) as c:
                         r = await c.get(source)
                         return r.json()
                 try:
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        import nest_asyncio; nest_asyncio.apply()
-                    data = asyncio.run(_fetch())
-                except:
+                    # 在独立线程中运行 asyncio.run()，避免 nest_asyncio 全局破坏事件循环
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                        data = pool.submit(lambda: asyncio.run(_fetch())).result(timeout=15)
+                except Exception:
                     continue
             else:
                 continue
@@ -230,15 +229,108 @@ def set_active_skills(skill_ids: list[str]) -> None:
 
 
 def get_skill_body(skill_id: str) -> str | None:
-    """按需加载指定技能的完整 body"""
+    """按需加载指定技能的完整 body（渐近式披露）"""
     skills = scan_skills()
     for s in skills:
         if s["id"] == skill_id:
             if not s.get("enabled"):
                 return f"技能 {skill_id} 未启用。请先在技能中心启用后再加载。"
-            if not s.get("body"):
+            body = s.get("body", "")
+            if not body:
                 return f"技能 {skill_id} 没有操作指令。"
-            return f"## 技能：{s['name']}\n{s['body']}"
+            name = s["name"]
+            desc = s.get("description", "")
+            return _format_skill_overview(skill_id, name, desc, body)
+    avail = [s["id"] for s in skills if s.get("enabled")]
+    return f"技能 {skill_id} 不存在。当前可用的技能：{', '.join(avail) if avail else '(无)'}"
+
+
+def _format_skill_overview(skill_id: str, name: str, description: str, body: str) -> str:
+    """渐近式披露：只返回概览（步骤标题列表），Agent 需要具体步骤时用 read_skill_step"""
+    import re
+    # 提取步骤标题（## 开头的行）
+    steps = re.findall(r'^###?\s+(.+)$', body, re.MULTILINE)
+    # 提取关键信息（参数约定、工作区结构等）—— 取前 800 字符
+    preview = body[:800]
+    if len(body) > 800:
+        # 截断到完整段落
+        last_break = max(preview.rfind("\n\n"), preview.rfind("\n"))
+        if last_break > 400:
+            preview = preview[:last_break]
+
+    lines = [
+        f"## 技能：{name}",
+        f"描述：{description}" if description else "",
+        f"",
+        f"核心约定：",
+        f"{preview}",
+        f"",
+        f"## 执行步骤（{len(steps)} 步）",
+    ]
+    if steps:
+        for i, st in enumerate(steps):
+            lines.append(f"  {i + 1}. {st.strip()}")
+    else:
+        # 无标题结构时，手动分段
+        paragraphs = [p.strip() for p in body.split("\n\n") if p.strip()]
+        for i, p in enumerate(paragraphs[:10]):
+            title = p.split("\n")[0][:80]
+            lines.append(f"  {i + 1}. {title}")
+
+    lines.append("")
+    lines.append(f"---")
+    lines.append(f"⚠️ 以上是技能概览。执行时用 read_skill_step(\"{skill_id}\", 步骤号或标题) 获取具体指令。")
+    lines.append(f"   例如：read_skill_step(\"{skill_id}\", 1) 或 read_skill_step(\"{skill_id}\", \"步骤 4 的标题\")")
+    lines.append(f"   技能全文 {len(body)} 字符，不要一次性加载——按需逐步读取，读完执行完就进入下一步。")
+
+    return "\n".join(lines)
+
+
+def read_skill_step(skill_id: str, step_ref: str | int) -> str:
+    """按需读取技能的特定步骤/章节"""
+    skills = scan_skills()
+    for s in skills:
+        if s["id"] == skill_id:
+            body = s.get("body", "")
+            if not body:
+                return f"技能 {skill_id} 没有内容"
+
+            import re
+            sections = re.split(r'(?=^###?\s)', body, flags=re.MULTILINE)
+
+            # 按序号匹配（跳过开头的 H1 标题段，从第一个 ## 段开始编号为步骤 1）
+            if isinstance(step_ref, int) or (isinstance(step_ref, str) and step_ref.isdigit()):
+                idx = int(step_ref) - 1
+                # 判断第一个 section 是否是 H1 概览（不以 ## 开头）→ 跳过
+                effective_sections = sections
+                if sections and not sections[0].strip().startswith("##"):
+                    effective_sections = sections[1:]
+                if 0 <= idx < len(effective_sections):
+                    return f"## 技能：{s['name']} > 步骤 {idx + 1}\n{effective_sections[idx].strip()}"
+                return f"步骤 {step_ref} 不存在。技能 {skill_id} 共 {len(effective_sections)} 个步骤。"
+
+            # 按标题关键词匹配
+            ref_lower = str(step_ref).lower()
+            for i, sec in enumerate(sections):
+                if ref_lower in sec.lower()[:120]:
+                    return f"## 技能：{s['name']} > {step_ref}\n{sec.strip()}"
+
+            # 模糊匹配
+            best_match = None
+            best_score = 0
+            for i, sec in enumerate(sections):
+                title = sec.split("\n")[0].lower()
+                score = sum(1 for w in ref_lower.split() if w in title)
+                if score > best_score:
+                    best_score = score
+                    best_match = (i, sec)
+            if best_match and best_score > 0:
+                return f"## 技能：{s['name']} > {step_ref}\n{best_match[1].strip()}"
+
+            return f"未找到与 «{step_ref}» 匹配的步骤。可用步骤：\n" + "\n".join(
+                f"  {i + 1}. {sec.split(chr(10))[0][:80]}" for i, sec in enumerate(sections)
+            )
+    return f"技能 {skill_id} 未找到"
     # 未匹配，返回可用列表
     avail = [s["id"] for s in skills if s.get("enabled")]
     return f"技能 {skill_id} 不存在。当前可用的技能：{', '.join(avail) if avail else '(无)'}"

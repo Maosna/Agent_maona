@@ -112,7 +112,8 @@ const api = {
               const data = JSON.parse(line.slice(6));
               switch (data.type) {
                 case "meta":
-                  handlers.onMeta?.(data.provider, data.model, data.conversation_id);
+                  window._modelContextWindow = data.context_window || 0;
+                  handlers.onMeta?.(data.provider, data.model, data.conversation_id, data);
                   break;
                 case "token":
                   handlers.onToken?.(data.content);
@@ -140,6 +141,10 @@ const api = {
                   break;
                 case "error":
                   handlers.onError?.(data.content);
+                  break;
+                case "system":
+                  // 系统消息：显示为短暂提示，不混入文本流
+                  handlers.onSystem?.(data.content);
                   break;
               }
             } catch (e) {
@@ -245,6 +250,16 @@ const api = {
 
   async fetchModels(name) {
     const resp = await _fetch(`${API_BASE}/settings/providers/${name}/fetch-models`, { method: "POST" });
+    return await resp.json();
+  },
+
+  async getModels(name) {
+    const resp = await _fetch(`${API_BASE}/settings/providers/${name}/models`);
+    return await resp.json();
+  },
+
+  async toggleModel(name, modelId, enabled) {
+    const resp = await _fetch(`${API_BASE}/settings/providers/${name}/toggle-model?model_id=${encodeURIComponent(modelId)}&enabled=${enabled ? "true" : "false"}`, { method: "POST" });
     return await resp.json();
   },
 

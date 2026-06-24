@@ -168,9 +168,23 @@ async def start_mcp_server():
                      "save_scene", "open_scene", "get_current_scene", "get_scene_structure",
                      "run_script", "get_script_errors", "get_debug_errors", "get_editor_output"]
             _mcp_tools = [{"name": n, "description": f"Godot MCP tool: {n}"} for n in known]
-            print(f"[MCP] 回退：使用 {len(_mcp_tools)} 个已知工具名")
+            print(f"[MCP] 回退：使用 {len(_mcp_tools)} 个已知工具名（非实时工具列表）")
+        else:
+            print(f"[MCP] 服务器提供了 {len(_mcp_tools)} 个工具")
+        
+        # 兜底健康检查：延迟 1s 后确认进程仍存活
+        # Godot MCP 服务器如果连不上编辑器会快速退出（exitcode=1）
+        await asyncio.sleep(1)
+        if _mcp_process is None or _mcp_process.returncode is not None:
+            msg = f"进程在初始化后退出 (exitcode={_mcp_process.returncode if _mcp_process else 'N/A'})"
+            print(f"[MCP] {msg}")
+            _mcp_error_log.append(msg)
+            _mcp_tools = []
+            await _cleanup_mcp_process()
+            return []
+        
         _mcp_ready = True
-        print(f"[MCP] 就绪，共 {len(_mcp_tools)} 个工具")
+        print(f"[MCP] 就绪，共 {len(_mcp_tools)} 个工具（{'回退模式' if not _mcp_tools or not any(t.get('description', '').startswith('Godot MCP tool') for t in _mcp_tools[:1]) else '实时模式'}）")
         return _mcp_tools
 
     except Exception as e:

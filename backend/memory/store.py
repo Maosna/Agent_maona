@@ -6,7 +6,13 @@ from typing import Optional
 
 # 默认记忆根目录（无工作空间时使用）
 DEFAULT_ROOT = Path.home() / ".agent_maona" / "memory"
-DEFAULT_ROOT.mkdir(parents=True, exist_ok=True)
+try:
+    DEFAULT_ROOT.mkdir(parents=True, exist_ok=True)
+except (OSError, PermissionError):
+    # 沙箱/托管环境回退到用户临时目录
+    import tempfile
+    DEFAULT_ROOT = Path(tempfile.gettempdir()) / "agent_maona" / "memory"
+    DEFAULT_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 def _atomic_write(path: Path, content: str):

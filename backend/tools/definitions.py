@@ -130,15 +130,21 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "edit_file",
-            "description": "精确替换文件中的文本。old_string 必须唯一出现一次。",
+            "description": "精确替换文件文本。支持5种模式：①old_string+new_string 精确替换 ②function=<函数名>+replace_body 替换整个函数体 ③class_name=<类名>+method=<方法名>+replace_body 替换类方法 ④regex+new_string 正则替换 ⑤append_after+new_string 在匹配行后追加",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "文件绝对路径"},
-                    "old_string": {"type": "string", "description": "要替换的原文本（必须唯一）"},
-                    "new_string": {"type": "string", "description": "新文本"}
+                    "old_string": {"type": "string", "description": "要替换的原文本（模式①，必须唯一）"},
+                    "new_string": {"type": "string", "description": "新文本（模式①③④⑤）"},
+                    "function": {"type": "string", "description": "GDScript 函数名（模式②）"},
+                    "class_name": {"type": "string", "description": "GDScript 类名（模式③）"},
+                    "method": {"type": "string", "description": "GDScript 方法名（模式③）"},
+                    "replace_body": {"type": "string", "description": "替换整个函数/方法体（模式②③）"},
+                    "append_after": {"type": "string", "description": "在该匹配文本后追加（模式⑤）"},
+                    "regex": {"type": "string", "description": "正则表达式（模式④）"}
                 },
-                "required": ["path", "old_string", "new_string"]
+                "required": ["path"]
             }
         }
     },
@@ -594,6 +600,21 @@ TOOLS = [
                     }
                 },
                 "required": ["skill_id"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_skill_step",
+            "description": "按需读取技能的特定步骤/章节。load_skill 返回概览后，用此工具逐步骤获取具体操作指令。用完即扔，不要一次性全部加载。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "skill_id": {"type": "string", "description": "技能ID"},
+                    "step_ref": {"type": "string", "description": "步骤序号(1,2,3...)或步骤标题关键词"}
+                },
+                "required": ["skill_id", "step_ref"]
             }
         }
     },
@@ -1272,6 +1293,20 @@ TOOLS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "verify_project_opens",
+            "description": "【运行时验证 Godot 项目】用 Godot 编辑器 --headless 模式实际加载项目做全量校验。比静态检查更可靠——能捕获 TSCN 解析错误、脚本加载失败、资源引用缺失。在汇报「项目完成」前必须调用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "project_dir": {"type": "string", "description": "游戏项目目录路径"}
+                },
+                "required": ["project_dir"]
+            }
+        }
+    },
     # ===== GDScript 验证 =====
     {
         "type": "function",
@@ -1302,6 +1337,21 @@ TOOLS = [
                     "editor_listening": {"type": "boolean", "description": "GodotMCP 端口 9080 是否在监听"},
                     "game_dir": {"type": "string", "description": "当前游戏项目目录路径"},
                     "active_game": {"type": "string", "description": "active-game.json 中记录的项目名"}
+                },
+                "required": []
+            }
+        }
+    },
+    # ===== Godot 环境探测（直接 Python 实现，无需 PowerShell） =====
+    {
+        "type": "function",
+        "function": {
+            "name": "detect_godot_env",
+            "description": "【Godot 环境探测】直接在 Python 中检测工作空间的 Godot 状态（active-game.json、project.godot、编辑器、9080 端口）。用此工具代替复杂的 PowerShell 脚本探测环境，避免转义问题导致静默失败。一次调用返回全部 4 个标志位。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "workspace": {"type": "string", "description": "工作空间路径（留空则使用当前上下文的工作空间）"}
                 },
                 "required": []
             }

@@ -64,21 +64,40 @@ async def fetch_models(name: str, force: bool = Query(False)):
             return {"name": name, "models": models, "cached": True}
 
     p = OpenAIProvider(name, cfg["api_url"], cfg["api_key"], "ping")
-    models = await p.fetch_models()
-    if models:
-        store.update_models(name, models)
-        _model_cache[name] = (time.time(), models)
+    try:
+        models = await p.fetch_models()
+        if models:
+            store.update_models(name, models)
+            _model_cache[name] = (time.time(), models)
+    finally:
+        await p.aclose()
 
     return {"name": name, "models": models, "cached": False}
 
 
 @router.get("/providers/{name}/models")
 async def get_models(name: str):
-    """获取 Provider 的模型列表"""
+    """获取 Provider 的模型列表（含启用状态）"""
     cfg = store.get_provider(name)
     if not cfg:
         return {"error": "Provider 不存在"}, 404
-    return {"name": name, "models": cfg.get("models", [])}
+    models = cfg.get("models", [])
+    # 统一转为 {id, enabled, ...} 格式
+    result = []
+    for m in models:
+        if isinstance(m, dict):
+            result.append({"id": m.get("id", ""), "enabled": m.get("enabled", True), "description": m.get("description", "")})
+        else:
+            result.append({"id": m, "enabled": True, "description": ""})
+    return {"name": name, "models": result}
+
+
+@router.post("/providers/{name}/toggle-model")
+async def toggle_model(name: str, model_id: str = Query(""), enabled: bool = Query(True)):
+    """切换单个模型的启用/禁用状态"""
+    store.toggle_model(name, model_id, enabled)
+    manager.clear_cache()
+    return {"status": "ok", "model_id": model_id, "enabled": enabled}
 
 
 @router.get("/providers/{name}/balance")
@@ -91,5 +110,8 @@ async def get_balance(name: str, model: str = "default"):
         return {"error": "未配置 API Key"}
     from providers.openai_provider import OpenAIProvider
     p = OpenAIProvider(name, cfg["api_url"], cfg["api_key"], model)
-    balance = await p.check_balance()
+    try:
+        balance = await p.check_balance()
+    finally:
+        await p.aclose()
     return {"name": name, "balance": balance}

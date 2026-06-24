@@ -1,6 +1,6 @@
 {
   "name": "agent-maona",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "精简自用 Agent 桌面办公助手",
   "main": "main.js",
   "scripts": {
@@ -14,7 +14,8 @@
   "license": "MIT",
   "devDependencies": {
     "electron": "^30.0.0",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "rcedit": "^5.0.2"
   },
   "build": {
     "appId": "com.maona.agent",
@@ -60,8 +61,8 @@
       }
     ],
     "win": {
-      "target": "nsis",
-      "icon": "renderer/assets/icon.png",
+      "target": ["nsis", "zip"],
+      "icon": "renderer/assets/icon.ico",
       "signAndEditExecutable": false
     },
     "nsis": {
@@ -71,9 +72,9 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Maona",
-      "installerIcon": "renderer/assets/icon.png",
-      "uninstallerIcon": "renderer/assets/icon.png",
-      "installerHeaderIcon": "renderer/assets/icon.png",
+      "installerIcon": "renderer/assets/icon.ico",
+      "uninstallerIcon": "renderer/assets/icon.ico",
+      "installerHeaderIcon": "renderer/assets/icon.ico",
       "license": "LICENSE.txt"
     }
   }

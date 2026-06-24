@@ -20,6 +20,22 @@ class OpenAIProvider:
             timeout=600.0,
             limits=httpx.Limits(max_keepalive_connections=5, max_connections=10, keepalive_expiry=30),
         )
+        self._closed = False
+
+    async def aclose(self):
+        """关闭底层 httpx 客户端，释放连接"""
+        if not self._closed:
+            self._closed = True
+            try:
+                await self._client.aclose()
+            except Exception:
+                pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        await self.aclose()
 
     async def _post_with_retry(self, url, payload, headers, max_retries=2):
         last_err = None
@@ -121,14 +137,22 @@ class OpenAIProvider:
         data = resp.json()
         choice = data.get("choices", [{}])[0]
         msg = choice.get("message", {})
+        usage = data.get("usage", {})
         return {
             "content": msg.get("content"),
             "tool_calls": msg.get("tool_calls"),
             "reasoning": msg.get("reasoning_content"),
+            "usage": {
+                "prompt_tokens": usage.get("prompt_tokens", 0),
+                "completion_tokens": usage.get("completion_tokens", 0),
+                "total_tokens": usage.get("total_tokens", 0),
+            }
         }
 
     async def chat_stream(
-        self, messages: list[dict], tools: Optional[list[dict]] = None, max_retries: int = 2
+        self, messages: list[dict], tools: Optional[list[dict]] = None, max_retries: int = 2,
+        temperature: float = None, max_tokens: int = None, top_p: float = None,
+        thinking_enabled: bool = False, reasoning_effort: str = None
     ) -> AsyncIterator[dict]:
         """流式对话，yield {"type":"token"|"reasoning"|"done", "content":"...", ...}"""
         if not self._api_key:
@@ -137,8 +161,15 @@ class OpenAIProvider:
 
         url = f"{self._api_url}/chat/completions"
         payload = {"model": self.model, "messages": messages, "stream": True}
+        if temperature is not None: payload["temperature"] = temperature
+        if max_tokens: payload["max_tokens"] = max_tokens
+        if top_p is not None: payload["top_p"] = top_p
         if tools:
             payload["tools"] = tools
+        if thinking_enabled and self.name.lower().find("deepseek") >= 0:
+            payload["thinking"] = {"type": "enabled"}
+            if reasoning_effort:
+                payload["thinking"]["effort"] = reasoning_effort
 
         headers = {
             "Authorization": f"Bearer {self._api_key}",
@@ -155,10 +186,11 @@ class OpenAIProvider:
                 async with self._client.stream("POST", url, json=payload, headers=headers) as resp:
                     resp.raise_for_status()
                     async for line in resp.aiter_lines():
-                        if line.startswith("data: "):
-                            data = line[6:]
-                            if data == "[DONE]":
-                                break
+                        if not line.startswith("data: "):
+                            continue
+                        data = line[6:]
+                        if data == "[DONE]":
+                            break
                         try:
                             chunk = json.loads(data)
                             delta = chunk.get("choices", [{}])[0].get("delta", {})

@@ -125,8 +125,34 @@ def remove_provider(name: str):
 
 
 def update_models(name: str, models: list[str]):
-    """更新 Provider 的模型列表"""
+    """更新 Provider 的模型列表，保留已有模型的 enabled 状态"""
     data = _load()
     if name in data.get("providers", {}):
-        data["providers"][name]["models"] = models
+        existing = data["providers"][name].get("models", [])
+        # 转换已有模型为 {id, enabled, ...} 格式
+        old_map = {}
+        for m in existing:
+            if isinstance(m, dict):
+                old_map[m.get("id", "")] = m
+            else:
+                old_map[m] = {"id": m, "enabled": True}
+        # 合并新模型列表
+        new_models = []
+        for mid in models:
+            if mid in old_map:
+                new_models.append(old_map[mid])
+            else:
+                new_models.append({"id": mid, "enabled": True})
+        data["providers"][name]["models"] = new_models
+        _save(data)
+
+
+def toggle_model(name: str, model_id: str, enabled: bool):
+    """切换单个模型的启用/禁用"""
+    data = _load()
+    if name in data.get("providers", {}):
+        for m in data["providers"][name].get("models", []):
+            if isinstance(m, dict) and m.get("id") == model_id:
+                m["enabled"] = enabled
+                break
         _save(data)

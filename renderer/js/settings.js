@@ -21,6 +21,8 @@ const settings = {
     try {
       document.getElementById("btn-add-provider").addEventListener("click", () => this.saveProvider());
       document.getElementById("btn-cancel-edit").addEventListener("click", () => this.cancelEdit());
+      var btnNewProvider = document.getElementById("btn-new-provider");
+      if (btnNewProvider) btnNewProvider.addEventListener("click", () => { this.cancelEdit(); document.getElementById("provider-form-modal").style.display = "flex"; });
       // 人设管理按钮
       const btnSave = document.getElementById("btn-persona-save");
       const btnCancel = document.getElementById("btn-persona-cancel");
@@ -113,51 +115,138 @@ const settings = {
   async loadProviders() {
     const list = document.getElementById("providers-list");
     if (!list) return;
+    const prevSelected = this._selectedProvider;
     list.innerHTML = '<p class="loading">加载中...</p>';
     try {
       const data = await api.listProviders();
       const providers = data.providers || [];
       if (providers.length === 0) {
-        list.innerHTML = '<p class="loading">暂无 API 配置，请在下方添加</p>';
+        list.innerHTML = '<p class="loading">暂无 API</p>';
+        document.getElementById("provider-detail").innerHTML = '<p class="loading">点击 ＋ 添加第一个 API</p>';
+        this._selectedProvider = null;
         return;
       }
-      list.innerHTML = providers.map((p) => `
-        <div class="provider-card">
-          <div class="provider-info">
-            <strong>${htmlEscape(p.name)}</strong>
-            <span class="provider-url">${htmlEscape(p.api_url)}</span>
-            <span class="provider-models">${htmlEscape((p.models || []).join(", ") || "未获取模型")}</span>
-          </div>
-          <div class="provider-actions">
-            <button class="btn-sm" onclick="settings.editProvider('${p.name.replace(/'/g, "\\'")}')">编辑</button>
-            <button class="btn-sm" onclick="settings.fetchModels('${p.name.replace(/'/g, "\\'")}')">获取模型</button>
-            <button class="btn-sm" style="color:var(--danger)" onclick="settings.remove('${p.name.replace(/'/g, "\\'")}')">删除</button>
-          </div>
-        </div>
-      `).join("");
+      // 侧栏 Provider 列表
+      list.innerHTML = providers.map((p, i) => {
+        var cnt = Array.isArray(p.models) ? p.models.length : 0;
+        if (cnt > 0 && typeof p.models[0] === "object") {
+          cnt = p.models.filter(m => m.enabled !== false).length;
+        }
+        var isActive = p.name === prevSelected;
+        if (!prevSelected && i === 0) isActive = true;
+        return '<div class="pv-bar-item' + (isActive ? ' active' : '') + '" data-provider="' + htmlEscape(p.name) + '" onclick="settings.selectProvider(\'' + p.name.replace(/'/g, "\\'") + '\')">'
+          + '<span class="pv-dot"></span>'
+          + '<span class="pv-label">' + htmlEscape(p.name) + '</span>'
+          + '<span class="pv-count">' + cnt + '</span>'
+          + '</div>';
+      }).join("");
+      // 选中上次或第一个
+      var target = prevSelected || providers[0].name;
+      await this.selectProvider(target);
     } catch {
       list.innerHTML = '<p class="loading">加载失败</p>';
     }
   },
 
+  async selectProvider(name) {
+    // 高亮
+    document.querySelectorAll(".pv-bar-item").forEach(function(el) {
+      el.classList.toggle("active", el.getAttribute("data-provider") === name);
+    });
+    // 加载模型到右侧
+    const detail = document.getElementById("provider-detail");
+    detail.innerHTML = '<p class="loading">加载模型...</p>';
+    try {
+      const md = await api.getModels(name);
+      let models = (md.models || []).map(m => typeof m === "string" ? { id: m, enabled: true } : m);
+      const enabledCount = models.filter(m => m.enabled !== false).length;
+      // 获取 provider 信息
+      let apiUrl = "";
+      try {
+        const allData = await api.listProviders();
+        const p = (allData.providers || []).find(function(x) { return x.name === name; });
+        if (p) apiUrl = p.api_url || "";
+      } catch (e) {}
+      detail.innerHTML =
+        '<div class="pv-detail-header">'
+        + '<div><div class="pv-detail-title"><span class="pv-dot"></span>' + htmlEscape(name) + '</div>'
+        + (apiUrl ? '<div class="pv-detail-desc">' + htmlEscape(apiUrl) + '</div>' : '')
+        + '</div>'
+        + '<div class="pv-detail-actions">'
+        + '<button class="btn-sm" onclick="settings.fetchModels(\'' + name.replace(/'/g, "\\'") + '\')">获取模型</button>'
+        + '<button class="btn-sm" onclick="settings.editProvider(\'' + name.replace(/'/g, "\\'") + '\')">编辑</button>'
+        + '<button class="btn-sm btn-danger" onclick="settings.remove(\'' + name.replace(/'/g, "\\'") + '\')">删除</button>'
+        + '</div></div>'
+        + '<div class="model-search"><input type="text" placeholder="搜索模型 (' + enabledCount + ' / ' + models.length + ' 启用, ' + models.length + ' 总数)..." oninput="settings.filterModels(this.value)"></div>'
+        + '<div class="model-grid">'
+        + models.map(function(m) {
+            var mid = m.id || m;
+            var checked = m.enabled !== false ? " checked" : "";
+            return '<div class="model-card" data-model-id="' + htmlEscape(mid) + '">'
+              + '<label class="model-toggle">'
+              + '<input type="checkbox"' + checked + ' onchange="settings.toggleModel(\'' + name.replace(/'/g, "\\'") + '\', \'' + mid.replace(/'/g, "\\'") + '\', this.checked)">'
+              + '<span class="toggle-slider"></span>'
+              + '</label>'
+              + '<div class="model-info">'
+              + '<div class="model-name">' + htmlEscape(mid) + '</div>'
+              + (m.description ? '<div class="model-meta">' + htmlEscape(m.description) + '</div>' : '')
+              + '</div>'
+              + '</div>';
+          }).join("")
+        + '</div>';
+    } catch (e) {
+      detail.innerHTML = '<p class="loading">加载失败</p>';
+    }
+    this._selectedProvider = name;
+  },
+
+  filterModels(query) {
+    var q = query.toLowerCase();
+    document.querySelectorAll(".model-card").forEach(function(item) {
+      var mid = (item.getAttribute("data-model-id") || "").toLowerCase();
+      item.style.display = mid.includes(q) ? "" : "none";
+    });
+    // 更新搜索框占位符
+    var visible = document.querySelectorAll('.model-card[style=""]').length + document.querySelectorAll('.model-card:not([style])').length;
+    var total = document.querySelectorAll(".model-card").length;
+    var input = document.querySelector(".model-search input");
+    if (input && query) input.placeholder = "搜索模型... (" + visible + " / " + total + " 匹配)";
+  },
+
+  async toggleModel(providerName, modelId, enabled) {
+    try {
+      await api.toggleModel(providerName, modelId, enabled);
+    } catch (e) {
+      console.error("toggleModel error:", e);
+    }
+    // 更新侧栏计数
+    var item = document.querySelector('.pv-bar-item[data-provider="' + providerName + '"]');
+    if (item) {
+      var checked = document.querySelectorAll('.model-card input:checked').length;
+      var total = document.querySelectorAll('.model-card input').length;
+      var cntEl = item.querySelector(".pv-count");
+      if (cntEl) cntEl.textContent = checked;
+    }
+    // 更新搜索栏计数
+    var input = document.querySelector(".model-search input");
+    if (input) {
+      var en = document.querySelectorAll('.model-card input:checked').length;
+      input.placeholder = "搜索模型 (" + en + " / " + document.querySelectorAll(".model-card").length + " 启用)";
+    }
+    // 刷新下拉框
+    if (typeof window.buildModelSelector === "function") window.buildModelSelector();
+  },
+
   editProvider(name) {
-    // 从卡片中读取当前数据
-    const cards = document.querySelectorAll(".provider-card");
-    let card = null;
-    cards.forEach(c => { if (c.querySelector("strong").textContent === name) card = c; });
-    if (!card) return;
-
-    const url = card.querySelector(".provider-url").textContent;
-
     this.editing = name;
     document.getElementById("edit-provider-name").value = name;
     document.getElementById("new-provider-name").value = name;
-    document.getElementById("new-provider-url").value = url;
-    document.getElementById("new-provider-key").value = "";  // key 不显示
+    document.getElementById("new-provider-url").value = "";
+    document.getElementById("new-provider-key").value = "";
     document.getElementById("new-provider-key").placeholder = "留空则不修改";
     document.getElementById("provider-form-title").textContent = "编辑 " + name;
     document.getElementById("btn-add-provider").textContent = "保存修改";
-    document.getElementById("btn-cancel-edit").style.display = "";
+    document.getElementById("provider-form-modal").style.display = "flex";
   },
 
   cancelEdit() {
@@ -168,8 +257,9 @@ const settings = {
     document.getElementById("new-provider-key").placeholder = "sk-...";
     document.getElementById("provider-form-title").textContent = "添加 API";
     document.getElementById("btn-add-provider").textContent = "添加";
-    document.getElementById("btn-cancel-edit").style.display = "none";
     document.getElementById("edit-provider-name").value = "";
+    document.getElementById("provider-form-modal").style.display = "none";
+    document.getElementById("settings-status").textContent = "";
   },
 
   async saveProvider() {

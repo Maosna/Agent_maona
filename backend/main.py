@@ -9,6 +9,21 @@ import secrets
 import webbrowser
 from pathlib import Path
 
+# === 修复沙箱/托管 Python 的 home 目录问题 ===
+# 托管 Python 的 Path.home() 可能指向不存在的沙箱目录
+# Windows 上 Path.home() 读 %USERPROFILE%，直接覆盖它最可靠
+import getpass as _gp
+_real_home = os.environ.get("USERPROFILE") or os.environ.get("LOCALAPPDATA") or f"C:/Users/{_gp.getuser()}"
+try:
+    test = Path.home() / ".maona_home_test"
+    test.parent.mkdir(parents=True, exist_ok=True)
+    test.write_text("ok")
+    test.unlink()
+except (OSError, PermissionError):
+    os.environ["HOME"] = _real_home
+    os.environ["USERPROFILE"] = _real_home
+    print(f"[Maona] 沙箱 home 回退到: {_real_home}")
+
 # 确保 backend 目录在 path 中
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -24,6 +39,65 @@ else:
     SESSION_TOKEN = secrets.token_hex(16)
     TOKEN_FILE.write_text(SESSION_TOKEN)
 print(f"[Maona] Session token: {SESSION_TOKEN[:8]}...")
+
+# ===== 全局未捕获异常日志 =====
+from datetime import datetime
+import logging
+import threading
+
+def _setup_crash_log():
+    """将未捕获异常写入 crash 日志文件，方便排查 exit code=1 问题"""
+    log_dir = Path(__file__).parent / "logs"
+    log_dir.mkdir(exist_ok=True)
+    crash_log = log_dir / "crash.log"
+
+    # Python 全局异常钩子（包括非 asyncio 线程中的异常）
+    _orig_excepthook = sys.excepthook
+    def _crash_excepthook(exc_type, exc_val, exc_tb):
+        import traceback as _tb
+        msg = f"[{datetime.now().isoformat()}] UNHANDLED EXCEPTION\n"
+        msg += "".join(_tb.format_exception(exc_type, exc_val, exc_tb))
+        with open(crash_log, "a", encoding="utf-8") as f:
+            f.write(msg + "\n")
+        # 仍然打印到 stderr（uvicorn 会捕获）
+        print(msg, file=sys.stderr, flush=True)
+        _orig_excepthook(exc_type, exc_val, exc_tb)
+    sys.excepthook = _crash_excepthook
+
+    # 线程中未捕获异常 (Python 3.8+)
+    if hasattr(threading, 'excepthook'):
+        _orig_threadhook = threading.excepthook
+        def _crash_threadhook(args):
+            msg = f"[{datetime.now().isoformat()}] THREAD EXCEPTION\n"
+            msg += f"  thread={args.thread.name}  exc={args.exc_type.__name__}: {args.exc_value}\n"
+            with open(crash_log, "a", encoding="utf-8") as f:
+                f.write(msg + "\n")
+            print(msg, file=sys.stderr, flush=True)
+            _orig_threadhook(args)
+        threading.excepthook = _crash_threadhook
+
+_setup_crash_log()
+
+def _install_asyncio_handler():
+    """在 lifespan 中安装 asyncio task 异常处理器（需要事件循环已启动）"""
+    log_dir = Path(__file__).parent / "logs"
+    crash_log = log_dir / "crash.log"
+    def _asyncio_exception_handler(loop, context):
+        msg_obj = context.get("message", str(context))
+        exc = context.get("exception")
+        msg = f"[{datetime.now().isoformat()}] ASYNCIO TASK EXCEPTION\n"
+        msg += f"  message={msg_obj}\n"
+        if exc:
+            import traceback as _tb
+            msg += "".join(_tb.format_exception(type(exc), exc, exc.__traceback__))
+        with open(crash_log, "a", encoding="utf-8") as f:
+            f.write(msg + "\n")
+        print(msg, file=sys.stderr, flush=True)
+    try:
+        loop = asyncio.get_event_loop()
+        loop.set_exception_handler(_asyncio_exception_handler)
+    except RuntimeError:
+        pass  # 无事件循环时跳过
 
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
@@ -58,6 +132,9 @@ async def _init_mcp_background():
 
 @asynccontextmanager
 async def lifespan(app):
+    # 安装 asyncio 异常处理器
+    _install_asyncio_handler()
+
     from memory.conversations import init_db
     await init_db()
     # 设置 Godot 插件根目录环境变量
@@ -65,15 +142,46 @@ async def lifespan(app):
     plugin_root = str(Path(__file__).resolve().parent.parent / "data" / "godot-mcp")
     os.environ["MAONA_PLUGIN_ROOT"] = plugin_root
     os.environ["GODOT_MCP_ROOT"] = plugin_root
-    _cleanup_tasks_on_startup()
-    # 自动构建知识图谱
+    # 后台任务：清理旧任务、构建知识图谱（不阻塞启动）
+    async def _bg_startup():
+        try:
+            from tasks.runner import cleanup_old_tasks
+            cleanup_old_tasks()
+        except Exception:
+            pass
+        try:
+            from memory.graph import auto_build_from_memory
+            auto_build_from_memory()
+        except Exception:
+            pass
+    asyncio.create_task(_bg_startup())
+    yield
+    # ===== shutdown: 资源清理 =====
+    print("[Maona] 正在清理资源...", file=sys.stderr, flush=True)
+    # 1. 关闭所有缓存的 Provider httpx 客户端
     try:
-        from memory.graph import auto_build_from_memory
-        auto_build_from_memory()
+        from providers.manager import _instances
+        for key, p in list(_instances.items()):
+            try:
+                if hasattr(p, 'aclose'):
+                    await p.aclose()
+            except Exception:
+                pass
+        _instances.clear()
     except Exception:
         pass
-    yield
-    # shutdown
+    # 2. 关闭 MCP 子进程
+    try:
+        from tools.mcp_client import _mcp_process
+        if _mcp_process and _mcp_process.returncode is None:
+            _mcp_process.terminate()
+            try:
+                _mcp_process.wait(timeout=3)
+            except Exception:
+                _mcp_process.kill()
+    except Exception:
+        pass
+    print("[Maona] 资源清理完成", file=sys.stderr, flush=True)
 
 
 app = FastAPI(
@@ -109,7 +217,7 @@ async def security_middleware(request: StarletteRequest, call_next):
     response.headers["Content-Security-Policy"] = "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' http://127.0.0.1:8765"
     # Session token check for API routes
     path = request.url.path
-    if path == "/api/health" or path == "/api/token" or not path.startswith("/api/") or path.startswith("/assets") or path.startswith("/css") or path.startswith("/js"):
+    if path == "/api/health" or path == "/api/token" or path == "/api/diagnostics" or path.startswith("/api/conversations/dump") or path.startswith("/api/usage/") or not path.startswith("/api/") or path.startswith("/assets") or path.startswith("/css") or path.startswith("/js"):
         return response
     token = request.headers.get("x-session-token", "")
     if token != SESSION_TOKEN:
@@ -427,11 +535,21 @@ if _RESOURCES:
 else:
     STATIC_DIR = Path(__file__).parent.parent / "renderer"
 
-# 挂载 CSS / JS 等资源
+# 挂载 CSS / JS 等资源（禁用缓存，开发模式下每次刷新都拿最新文件）
 if STATIC_DIR.exists():
     app.mount("/css", StaticFiles(directory=str(STATIC_DIR / "css")), name="css")
     app.mount("/js", StaticFiles(directory=str(STATIC_DIR / "js")), name="js")
     app.mount("/assets", StaticFiles(directory=str(STATIC_DIR / "assets")), name="assets")
+
+@app.middleware("http")
+async def no_cache_static(request: StarletteRequest, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/js/") or path.startswith("/css/") or path == "/index.html":
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
 
 
 @app.get("/")
@@ -503,20 +621,127 @@ async def diagnostics():
             pass
     # 缓存状态
     try:
-        from api.chat import _conv_prompt_cache, _agent_sessions
+        from api.chat import _conv_prompt_cache, _agent_sessions, _runtime_diag
         info["prompt_cache_size"] = len(_conv_prompt_cache)
         info["active_sessions"] = len(_agent_sessions)
+        # 运行时诊断
+        info["runtime"] = {
+            "total_rounds": _runtime_diag.get("total_rounds", 0),
+            "total_tool_calls": _runtime_diag.get("total_tool_calls", 0),
+            "auto_snapshots": _runtime_diag.get("auto_snapshots", 0),
+            "auto_continues": _runtime_diag.get("auto_continues", 0),
+            "provider_events": _runtime_diag.get("provider_events", [])[-10:],
+            "phase_events": _runtime_diag.get("phase_events", []),
+            "compressions": _runtime_diag.get("compressions", [])[-5:],
+            "quality_gates": _runtime_diag.get("quality_gates", [])[-10:],
+            "code_analysis": _runtime_diag.get("code_analysis", [])[-10:],
+            "injections": _runtime_diag.get("injections", []),
+            "errors": _runtime_diag.get("errors", [])[-10:],
+            "last_error": _runtime_diag.get("last_error"),
+            "model_settings": _runtime_diag.get("model_settings", {}),
+            "round_timeline": _runtime_diag.get("round_timeline", [])[-30:],
+        }
     except Exception:
         pass
     return info
 
 
+@app.get("/api/usage/logs")
+async def usage_logs(days: int = 7, model: str = "", conversation_id: str = "", limit: int = 200, offset: int = 0):
+    """查询用量日志"""
+    from usage_tracker import query_usage
+    return query_usage(days=days, model=model, conversation_id=conversation_id, limit=limit, offset=offset)
+
+
+@app.get("/api/usage/stats")
+async def usage_stats():
+    """用量统计概览"""
+    from usage_tracker import get_usage_stats
+    return get_usage_stats()
+
+
+@app.get("/api/usage/export")
+async def usage_export(days: int = 30, model: str = ""):
+    """导出用量 CSV"""
+    import csv, io
+    from usage_tracker import query_usage
+    data = query_usage(days=days, model=model, limit=10000)
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["时间", "模型", "输入Token", "输出Token", "总Token", "成本(USD)", "对话ID"])
+    for r in data["rows"]:
+        writer.writerow([r["timestamp"], r["model"], r["tokens_input"], r["tokens_output"], r["tokens_total"], r["cost"], r["conversation_id"]])
+    from starlette.responses import Response
+    return Response(content=output.getvalue(), media_type="text/csv", headers={"Content-Disposition": f"attachment; filename=maona_usage_{days}d.csv"})
+
+
+@app.get("/api/conversations/dump")
+async def dump_all_conversations(conv_id: str = None):
+    """导出所有对话数据（含完整消息历史、tool_calls、reasoning）用于调试"""
+    try:
+        from memory.conversations import _get_db
+        db = _get_db()
+        result = {"conversations": []}
+        if conv_id:
+            rows = db.execute(
+                "SELECT c.id, c.title, c.project_id, c.created_at, c.updated_at, "
+                "m.id as msg_id, m.role, m.content, m.reasoning_content, m.tool_calls, m.created_at as msg_time "
+                "FROM conversations c LEFT JOIN messages m ON c.id = m.conversation_id "
+                "WHERE c.id = ? ORDER BY m.created_at", (conv_id,)
+            ).fetchall()
+        else:
+            rows = db.execute(
+                "SELECT c.id, c.title, c.project_id, c.created_at, c.updated_at, "
+                "m.id as msg_id, m.role, m.content, m.reasoning_content, m.tool_calls, m.created_at as msg_time "
+                "FROM conversations c LEFT JOIN messages m ON c.id = m.conversation_id "
+                "ORDER BY c.updated_at DESC LIMIT 500"
+            ).fetchall()
+        # 按对话分组
+        convs = {}
+        for r in rows:
+            cid = r["id"]
+            if cid not in convs:
+                convs[cid] = {
+                    "id": cid, "title": r["title"], "project_id": r["project_id"],
+                    "created_at": r["created_at"], "updated_at": r["updated_at"],
+                    "messages": []
+                }
+            if r["msg_id"]:
+                msg = {"msg_id": r["msg_id"], "role": r["role"], "content": (r["content"] or "")[:5000],
+                       "created_at": r["msg_time"]}
+                if r["reasoning_content"]:
+                    msg["reasoning"] = r["reasoning_content"][:3000]
+                if r["tool_calls"]:
+                    try:
+                        msg["tool_calls"] = json.loads(r["tool_calls"]) if isinstance(r["tool_calls"], str) else r["tool_calls"]
+                    except:
+                        msg["tool_calls"] = r["tool_calls"][:1000]
+                convs[cid]["messages"].append(msg)
+        result["conversations"] = list(convs.values())
+        result["total_conversations"] = len(convs)
+        # 注入运行时诊断
+        from api.chat import _runtime_diag
+        result["runtime"] = {
+            "total_rounds": _runtime_diag.get("total_rounds", 0),
+            "phase_events": _runtime_diag.get("phase_events", []),
+            "quality_gates": _runtime_diag.get("quality_gates", [])[-10:],
+            "compressions": _runtime_diag.get("compressions", [])[-5:],
+        }
+        return result
+    except Exception as e:
+        return {"error": str(e)[:500], "conversations": []}
+
+
 if __name__ == "__main__":
     import uvicorn
+    import traceback
 
     # 首次启动预置 Provider 模板
-    from config import seed_default_providers
-    seed_default_providers()
+    try:
+        from config import seed_default_providers
+        seed_default_providers()
+    except Exception as _e:
+        print(f"[Maona] 预置 Provider 失败: {_e}", file=sys.stderr)
 
     print(f"\n  Agent Maona 启动中...")
     print(f"  后端: http://{HOST}:{PORT}")
@@ -526,11 +751,7 @@ if __name__ == "__main__":
     if "--no-browser" not in sys.argv:
         webbrowser.open(f"http://{HOST}:{PORT}")
 
-    # 端口可能处于 TIME_WAIT，先尝试清理僵尸进程
     import time as _time, subprocess as _sp
-    try:
-        _sp.run('for /f "tokens=5" %a in (\'netstat -ano ^| findstr :8765 ^| findstr LISTENING\') do taskkill /F /PID %a 2>nul', shell=True, timeout=5)
-    except: pass
 
     for _attempt in range(10):
         try:
@@ -538,7 +759,16 @@ if __name__ == "__main__":
             break
         except Exception as _e:
             if "10048" in str(_e) and _attempt < 9:
-                print(f"[Maona] 端口被占用，3秒后重试... ({_attempt+1}/10)")
-                _time.sleep(3)
+                # 端口被占用，快速清理后重试
+                try:
+                    _sp.run(
+                        'powershell -Command "Get-NetTCPConnection -LocalPort {0} -State Listen -ErrorAction SilentlyContinue | ForEach-Object {{ Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }}"'.format(PORT),
+                        shell=True, timeout=3
+                    )
+                except: pass
+                print(f"[Maona] 端口被占用，已清理，1秒后重试... ({_attempt+1}/10)")
+                _time.sleep(1)
             else:
-                raise
+                print(f"[Maona] 致命错误:", file=sys.stderr)
+                traceback.print_exc(file=sys.stderr)
+                sys.exit(1)

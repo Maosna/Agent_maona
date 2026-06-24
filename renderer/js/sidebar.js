@@ -5,6 +5,8 @@ const sidebar = {
   activeWorkspace: null,
   hasConversation: false,
   _initialized: false,  // 防重复初始化
+  _tasksProject: "agent_maona",  // "任务"区的固定项目ID
+  _tasksCollapsed: false,
 
   async init() {
     if (this._initialized) return;
@@ -19,6 +21,7 @@ const sidebar = {
       if (el) {
         const convId = el.getAttribute("data-conv-id");
         const wsPath = el.getAttribute("data-ws-path") || app.workspacePath;
+        app.navigate("chat");
         sidebar.restoreHistory(wsPath, convId);
       }
     });
@@ -45,12 +48,35 @@ const sidebar = {
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
     });
 
-    // btn-new-task 用同样的安全方式
-    document.getElementById("btn-new-task").addEventListener("click", () => {
-      if (window.chat && typeof window.chat.newChat === "function") {
-        app.resetWorkspace();
-        window.chat.newChat();
+    // 输入框 token 检查：超过模型上下文窗口则禁用发送
+    function estInputTokens(text) {
+      var cn = (text.match(/[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/g) || []).length;
+      var en = text.length - cn;
+      return Math.ceil(cn * 0.6 + en * 0.25);
+    }
+    function getCtxWindow() {
+      try {
+        var cid = window.chat && window.chat.currentConversationId;
+        var cc = window.chat && window.chat._convContext;
+        if (cid && cc && cc[cid] && cc[cid].ctxWindow) return cc[cid].ctxWindow;
+      } catch(e) {}
+      return 200000;
+    }
+    chatInput.addEventListener("input", function() {
+      var tk = estInputTokens(chatInput.value);
+      var ctx = getCtxWindow();
+      if (tk > ctx) {
+        sendBtn.disabled = true;
+        sendBtn.title = "当前消息过大（约 " + tk.toLocaleString() + " tokens），超过上下文窗口（" + ctx.toLocaleString() + " tokens）";
+      } else {
+        sendBtn.disabled = false;
+        sendBtn.title = "发送";
       }
+    });
+
+    // btn-new-task：切到任务模式开新对话
+    document.getElementById("btn-new-task").addEventListener("click", () => {
+      sidebar.newTask();
     });
 
     // 搜索（防抖）
@@ -75,8 +101,15 @@ const sidebar = {
     });
 
     await this.loadWorkspaces();
-    // 已有工作空间正常渲染；hasConversation 保持 false，等当前会话实际对话后才变 true
+    // 已有工作空间正常渲染；没有工作空间时自动展开任务区
+    if (this.workspaces.length === 0) {
+      this._tasksCollapsed = false;
+    }
     this.render();
+    // 自动加载任务区历史
+    if (!this._tasksCollapsed) {
+      this.loadTaskHistory();
+    }
   },
 
   async loadWorkspaces() {
@@ -114,6 +147,12 @@ const sidebar = {
       setTimeout(function() {
         if (self.activeWorkspace) self.toggleWorkspace(self.activeWorkspace);
       }, 300);
+    }
+    // 任务模式下刷新任务区
+    if (!this.activeWorkspace && !document.getElementById("tasks-body")?.querySelector(".ws-conv-list")) {
+      // 任务区还没展开过，不强制刷新
+    } else if (!this.activeWorkspace) {
+      this.loadTaskHistory();
     }
   },
 
@@ -164,49 +203,161 @@ const sidebar = {
 
   async render() {
     const tree = document.getElementById("ws-tree");
-    const isCollapsed = tree.dataset.collapsed === "1";
-    tree.innerHTML = `
-      <div class="ws-section-header" onclick="sidebar.toggleSection()">
-        <span class="ws-section-arrow">${isCollapsed ? "▶" : "▼"}</span>
-        <span class="ws-section-title">工作空间</span>
-      </div>
-      <div class="ws-section-body" style="${isCollapsed ? 'display:none' : ''}">
-        ${this.workspaces.length === 0 ? '<p class="ws-empty">暂无</p>' : this.workspaces.map(w => {
+    // "任务"区是否折叠
+    var tasksCollapsed = !!this._tasksCollapsed;
+    // "工作空间"区是否折叠
+    var isCollapsed = tree.dataset.collapsed === "1";
+
+    var html = "";
+
+    // ===== 任务区 =====
+    html += '<div class="ws-section-header" onclick="sidebar.toggleTasks()">';
+    html += '  <span class="ws-section-arrow">' + (tasksCollapsed ? '▶' : '▼') + '</span>';
+    html += '  <span class="ws-section-title">任务</span>';
+    html += '  <span class="ws-section-add" onclick="event.stopPropagation();sidebar.newTask()" title="新建任务">+</span>';
+    html += '</div>';
+    html += '<div class="ws-section-body" id="tasks-body" style="' + (tasksCollapsed ? 'display:none' : '') + '">';
+    html += '  <div id="tasks-history" style="padding:2px 8px"></div>';
+    html += '</div>';
+
+    // ===== 工作空间区 =====
+    html += '<div class="ws-section-header" onclick="sidebar.toggleSection()">';
+    html += '  <span class="ws-section-arrow">' + (isCollapsed ? '▶' : '▼') + '</span>';
+    html += '  <span class="ws-section-title">工作空间</span>';
+    html += '</div>';
+    html += '<div class="ws-section-body" id="ws-section-body" style="' + (isCollapsed ? 'display:none' : '') + '">';
+    html += this.workspaces.length === 0
+      ? '<p class="ws-empty">暂无</p>'
+      : this.workspaces.map(w => {
           const isActive = w.path === this.activeWorkspace;
-          return `
-            <div class="ws-root ${isActive ? "active" : ""}">
-              <div class="ws-header-row" onclick="sidebar.toggleWorkspace('${this._esc(w.path)}')">
-                <span class="ws-arrow" id="ws-arrow-${this._id(w.path)}">▶</span>
-                <span class="ws-name">${this._escapeHtml(w.name)}</span>
-                <span class="ws-actions">
-                  <span class="ws-set-active" onclick="event.stopPropagation();sidebar.newTaskInWorkspace('${this._esc(w.path)}')" title="新建任务">+</span>
-                  <span class="ws-remove" onclick="event.stopPropagation();sidebar.removeWorkspace('${this._esc(w.path)}')" title="移除">✕</span>
-                </span>
-              </div>
-              <div class="ws-folder-tree" id="ws-folder-${this._id(w.path)}" style="display:none">
-                <p class="loading" style="font-size:11px">点击展开</p>
-              </div>
-            </div>
-          `;
-        }).join("")}
-      </div>
-    `;
+          return '<div class="ws-root ' + (isActive ? 'active' : '') + '">'
+            + '<div class="ws-header-row" onclick="sidebar.toggleWorkspace(\'' + this._esc(w.path) + '\')">'
+            + '<span class="ws-arrow" id="ws-arrow-' + this._id(w.path) + '">▶</span>'
+            + '<span class="ws-name">' + this._escapeHtml(w.name) + '</span>'
+            + '<span class="ws-actions">'
+            + '<span class="ws-set-active" onclick="event.stopPropagation();sidebar.newTaskInWorkspace(\'' + this._esc(w.path) + '\')" title="新建任务">+</span>'
+            + '<span class="ws-remove" onclick="event.stopPropagation();sidebar.removeWorkspace(\'' + this._esc(w.path) + '\')" title="移除">✕</span>'
+            + '</span></div>'
+            + '<div class="ws-folder-tree" id="ws-folder-' + this._id(w.path) + '" style="display:none">'
+            + '<p class="loading" style="font-size:11px">点击展开</p></div></div>';
+        }).join("")
+    + '</div>';
+
+    tree.innerHTML = html;
   },
 
   toggleSection() {
     const tree = document.getElementById("ws-tree");
-    const body = tree.querySelector(".ws-section-body");
-    const arrow = tree.querySelector(".ws-section-arrow");
-    if (!body || !arrow) return;
+    const body = document.getElementById("ws-section-body");
+    const header = tree.querySelectorAll(".ws-section-header")[1];  // 第二个 header 是工作空间
+    const arrow = header ? header.querySelector(".ws-section-arrow") : null;
+    if (!body) return;
     if (body.style.display === "none") {
       body.style.display = "";
-      arrow.textContent = "▼";
+      if (arrow) arrow.textContent = "▼";
       tree.dataset.collapsed = "0";
     } else {
       body.style.display = "none";
-      arrow.textContent = "▶";
+      if (arrow) arrow.textContent = "▶";
       tree.dataset.collapsed = "1";
     }
+  },
+
+  // ===== 任务区方法 =====
+
+  /** 新建任务（默认空间） */
+  async newTask() {
+    if (window.chat._hasDraft && window.chat._hasDraft() && !(await this._confirm("输入框中有未发送的内容，是否放弃？"))) return;
+    // 切到任务模式
+    app.workspacePath = null;
+    this.activeWorkspace = null;
+    app.resetWorkspace();
+    window.chat.newChat();
+  },
+
+  /** 切换任务区折叠 */
+  async toggleTasks() {
+    this._tasksCollapsed = !this._tasksCollapsed;
+    const body = document.getElementById("tasks-body");
+    // 更新箭头图标
+    const tree = document.getElementById("ws-tree");
+    const header = tree?.querySelector(".ws-section-header");
+    const arrow = header?.querySelector(".ws-section-arrow");
+    if (arrow) arrow.textContent = this._tasksCollapsed ? '▶' : '▼';
+    if (body) {
+      if (this._tasksCollapsed) {
+        body.style.display = "none";
+      } else {
+        body.style.display = "";
+        await this.loadTaskHistory();
+      }
+    }
+  },
+
+  /** 加载任务区对话历史 */
+  async loadTaskHistory(append = false) {
+    var container = document.getElementById("tasks-history");
+    if (!container) return;
+    if (!append) container.innerHTML = "";
+    try {
+      var listEl = append ? container.querySelector(".ws-conv-list") : null;
+      var offset = listEl ? listEl.querySelectorAll(".ws-sub-item").length : 0;
+      var data = await api.getConversations(this._tasksProject, 5, offset);
+      var convs = data.conversations || [];
+
+      if (convs.length === 0 && offset === 0) {
+        container.innerHTML = '';
+        return;
+      }
+
+      if (!append) {
+        container.innerHTML = "";
+        listEl = document.createElement("div");
+        listEl.className = "ws-conv-list";
+        container.appendChild(listEl);
+      }
+
+      var prevLoad = container.querySelector(".ws-load-more");
+      if (prevLoad) prevLoad.remove();
+
+      var self = this;
+      convs.forEach(function(c) {
+        var div = document.createElement("div");
+        div.className = "ws-sub-item ws-history";
+        div.setAttribute("data-conv-id", c.id);
+        div.title = "双击重命名";
+        div.onclick = function() { sidebar.restoreTaskHistory(c.id); };
+        div.ondblclick = function(e) { e.stopPropagation(); sidebar.renameConversation(null, c.id, c.title || "新对话"); };
+        var title = (c.title || "新对话").substring(0, 30);
+        var date = (c.updated_at || "").slice(0, 10);
+        div.innerHTML = '<span class="ws-history-title">' + self._escapeHtml(title) + '</span>'
+          + '<span style="font-size:9px;opacity:0.5;margin-left:auto;margin-right:4px">' + date + '</span>'
+          + '<span class="ws-history-del" onclick="event.stopPropagation();sidebar.deleteConversation(null,\'' + c.id + '\')" title="删除对话">✕</span>';
+        listEl.appendChild(div);
+      });
+
+      if (data.has_more && data.total) {
+        var remaining = Math.max(0, (data.total || 0) - offset - convs.length);
+        if (remaining > 0) {
+          var more = document.createElement("div");
+          more.className = "ws-load-more";
+          more.style.cssText = "text-align:center;font-size:10px;color:var(--text-dim);padding:4px;cursor:pointer";
+          more.textContent = "加载更多 (" + remaining + " 条剩余)";
+          more.onclick = function() { self.loadTaskHistory(true); };
+          container.appendChild(more);
+        }
+      }
+    } catch(e) { container.innerHTML = '<p style="font-size:11px;color:var(--danger)">加载失败</p>'; }
+  },
+
+  /** 恢复任务历史 */
+  async restoreTaskHistory(conversationId) {
+    if (window.chat.currentConversationId === conversationId && !app.workspacePath) return;
+    if (window.chat._hasDraft && window.chat._hasDraft() && !(await this._confirm("输入框中有未发送的内容，是否放弃？"))) return;
+    app.workspacePath = null;
+    this.activeWorkspace = null;
+    app.hideWorkspaceBar();
+    sidebar.restoreHistory("", conversationId);
   },
 
   async toggleWorkspace(path) {
@@ -278,16 +429,16 @@ const sidebar = {
   },
 
   async restoreHistory(workspacePath, conversationId) {
-    if (window.chat.currentConversationId === conversationId && app.workspacePath === workspacePath) return;
+    if (window.chat.currentConversationId === conversationId && app.workspacePath === (workspacePath || null)) return;
     if (window.chat._hasDraft && window.chat._hasDraft() && !(await this._confirm("输入框中有未发送的内容，是否放弃？"))) return;
-    // 设为当前工作空间
-    app.workspacePath = workspacePath;
-    this.activeWorkspace = workspacePath;
+    // 设为当前工作空间（空字符串=任务模式）
+    app.workspacePath = workspacePath || null;
+    this.activeWorkspace = workspacePath || null;
     app.hideWorkspaceBar();
     this._updateActiveHighlight();
     // 加载动画
     if (window.chat.el) {
-      window.chat.el.innerHTML = `<div class="welcome-msg"><h2>Maona</h2><p>加载对话...</p></div>`;
+      window.chat.el.innerHTML = '<div class="welcome-msg"><h2>Maona</h2><p>加载对话...</p></div>';
     }
     // 重置 ChatRenderer 内部状态
     window.chat._replyEl = null;
@@ -299,10 +450,8 @@ const sidebar = {
         if (data?.messages) {
           window.chat.el.innerHTML = '';
           restoreConversationMessages(data.messages, conversationId);
-          // 恢复任务面板（从历史消息中的 tool_calls 重建）
           restoreTaskPanel(data.messages);
           window.chat.currentConversationId = conversationId;
-          // 恢复 UI 状态
           window.chat.isStreaming = false;
           window.chat.sendBtn.style.display = '';
           window.chat.stopBtn.style.display = 'none';
@@ -381,11 +530,16 @@ const sidebar = {
       if (app && typeof app.showErrorToast === "function") app.showErrorToast("删除失败: 网络错误");
       return;
     }
-    if (app.workspacePath === workspacePath) {
+    if (app.workspacePath === (workspacePath || null)) {
       window.chat.newChat();
     }
-    const folderEl = document.getElementById("ws-folder-" + this._id(workspacePath));
-    if (folderEl) this.loadHistory(workspacePath, folderEl);
+    // 任务区对话 → 刷新任务列表；工作空间对话 → 刷新工作空间
+    if (workspacePath) {
+      var folderEl = document.getElementById("ws-folder-" + this._id(workspacePath));
+      if (folderEl) this.loadHistory(workspacePath, folderEl);
+    } else {
+      this.loadTaskHistory();
+    }
   },
 
   async doSearch(query) {

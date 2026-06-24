@@ -26,13 +26,22 @@ def validate_gdscript(project_dir: str = "", skip_addons: bool = True, **kw) -> 
     if not (pd / "project.godot").exists():
         return f"未找到 project.godot，请确认 {pd} 是一个 Godot 项目"
 
+    # === project.godot 格式校验 ===
+    results = []
+    try:
+        pg_content = (pd / "project.godot").read_text(encoding="utf-8-sig")
+        pg_issues = _check_project_godot(pg_content, pd)
+        if pg_issues:
+            results.extend(pg_issues)
+    except Exception as e:
+        results.append(f"⚠️ project.godot 校验异常: {e}")
+
     gd_files = list(pd.rglob("*.gd"))
     if skip_addons:
         gd_files = [f for f in gd_files if "addons" not in str(f.relative_to(pd)).replace("\\", "/").split("/")]
     if not gd_files:
         return f"项目中没有 .gd 脚本文件" + (" (已跳过 addons/ 目录)" if skip_addons else "")
 
-    results = []
     all_functions = {}  # {class_name: {func_name: param_count}}
     all_signals = {}    # {class_name: {signal_name: declared_in_file}}
     all_emits = {}      # {class_name: {signal_name: [files_that_emit]}}
@@ -40,7 +49,7 @@ def validate_gdscript(project_dir: str = "", skip_addons: bool = True, **kw) -> 
     for gf in sorted(gd_files):
         rel = gf.relative_to(pd)
         try:
-            content = gf.read_text(encoding="utf-8")
+            content = gf.read_text(encoding="utf-8-sig")
         except Exception as e:
             results.append(f"⚠️ 无法读取 {rel}: {e}")
             continue
@@ -116,7 +125,7 @@ def validate_gdscript(project_dir: str = "", skip_addons: bool = True, **kw) -> 
     # 寻找对其他 autoload 类的方法调用
     api_issues = []
     for gf in sorted(gd_files):
-        content = gf.read_text(encoding="utf-8")
+        content = gf.read_text(encoding="utf-8-sig")
         rel = str(gf.relative_to(pd))
         # 匹配 ClassName.method(args) 模式
         for m in re.finditer(r'(\w+)\.(\w+)\s*\(', content):
@@ -163,7 +172,7 @@ def validate_gdscript(project_dir: str = "", skip_addons: bool = True, **kw) -> 
     # 7. 检查场景文件引用的脚本是否存在
     tscn_files = list(pd.rglob("*.tscn"))
     for tf in sorted(tscn_files):
-        content = tf.read_text(encoding="utf-8")
+        content = tf.read_text(encoding="utf-8-sig")
         rel_t = tf.relative_to(pd)
         scene_issues = []
         # 查找 ext_resource 引用
@@ -193,18 +202,18 @@ def validate_gdscript(project_dir: str = "", skip_addons: bool = True, **kw) -> 
     import collections
     scene_nodes = collections.defaultdict(set)  # {tscn_relative_path: {node_names}}
     for tf in tscn_files:
-        content = tf.read_text(encoding="utf-8")
+        content = tf.read_text(encoding="utf-8-sig")
         rel = str(tf.relative_to(pd))
         for m in re.finditer(r'\[node\s+name="([^"]+)"', content):
             scene_nodes[rel].add(m.group(1))
 
     for gf in sorted(gd_files):
-        content = gf.read_text(encoding="utf-8")
+        content = gf.read_text(encoding="utf-8-sig")
         rel = str(gf.relative_to(pd))
         # 查找该脚本绑定的 TSCN（通过 ext_resource 反向查找）
         bound_scenes = []
         for tf in tscn_files:
-            tc = tf.read_text(encoding="utf-8")
+            tc = tf.read_text(encoding="utf-8-sig")
             t_rel = str(tf.relative_to(pd))
             if f'path="res://{rel.replace(chr(92), "/")}"' in tc:
                 bound_scenes.append(t_rel)
@@ -239,10 +248,10 @@ def validate_gdscript(project_dir: str = "", skip_addons: bool = True, **kw) -> 
 
     # 9. 检查 @export 变量类型与可能的节点名称
     for gf in sorted(gd_files):
-        content = gf.read_text(encoding="utf-8")
+        content = gf.read_text(encoding="utf-8-sig")
         rel = str(gf.relative_to(pd))
         bound_scenes = [str(tf.relative_to(pd)) for tf in tscn_files
-                       if f'path="res://{rel.replace(chr(92), "/")}"' in tf.read_text(encoding="utf-8")]
+                       if f'path="res://{rel.replace(chr(92), "/")}"' in tf.read_text(encoding="utf-8-sig")]
         if not bound_scenes:
             continue
         for m in re.finditer(r'@export(?:\s+var)?\s+(\w+)\s*:\s*(\w+)', content):
@@ -257,7 +266,7 @@ def validate_gdscript(project_dir: str = "", skip_addons: bool = True, **kw) -> 
     # 10. 检查 project.godot 中 Autoload 注册的脚本是否存在
     pg = pd / "project.godot"
     if pg.exists():
-        pg_content = pg.read_text(encoding="utf-8")
+        pg_content = pg.read_text(encoding="utf-8-sig")
         for m in re.finditer(r'(\w+)="\*res://([^"]+)"', pg_content):
             name = m.group(1)
             path = m.group(2)
@@ -266,12 +275,82 @@ def validate_gdscript(project_dir: str = "", skip_addons: bool = True, **kw) -> 
                 results.append(f"\n📄 project.godot:")
                 results.append(f"  🔴 Autoload '{name}' 脚本不存在: res://{path}")
             else:
-                sc = script.read_text(encoding="utf-8")
+                sc = script.read_text(encoding="utf-8-sig")
                 if 'class_name' not in sc and 'extends' not in sc:
                     results.append(f"\n📄 project.godot:")
                     results.append(f"  🟡 Autoload '{name}' (res://{path}) 缺少 class_name 或 extends")
 
     if not results:
         return "✅ 未发现明显错误（含节点路径+@export+Autoload 检查）。建议在 Godot 编辑器中打开项目做完整编译检查。"
+    # 智能截断：优先保留 🔴 致命错误，🟡 警告仅保留前 8 条
+    output = "\n".join(results)
+    if len(results) > 15:
+        critical = [l for l in results if "🔴" in l or "❌" in l]
+        warnings = [l for l in results if "🟡" in l or "⚠️" in l]
+        truncated = critical + warnings[:8]
+        if len(warnings) > 8:
+            truncated.append(f"\n  ... 还有 {len(warnings) - 8} 条 🟡 警告，在 Godot 编辑器中修复")
+        if len(truncated) < len(results):
+            truncated.append(f"\n共 {len(results)} 条问题，显示前 {len(truncated)} 条")
+        output = "\n".join(truncated)
+    return output
 
-    return "## GDScript 验证报告\n" + "\n".join(results)
+
+def _check_project_godot(content: str, project_dir: Path) -> list[str]:
+    """检查 project.godot 的格式问题"""
+    issues = []
+    header = [f"\n📄 project.godot:"]
+    
+    # 1. 检查 config_version
+    if 'config_version' not in content:
+        header.append("  🔴 缺少 config_version=5")
+    
+    # 2. 检查 config/name
+    if 'config/name' not in content:
+        header.append("  ❌ 缺少 config/name")
+    
+    # 3. 检查 PACKED_STRING_ARRAY (大小写错误)
+    if re.search(r'PACKED_STRING_ARRAY', content):
+        header.append("  🔴 config/features 使用了 PACKED_STRING_ARRAY 应改为 PackedStringArray")
+    
+    # 4. 检查 PackedInt32Array 等大小写
+    for wrong in ['PACKED_INT32_ARRAY', 'PACKED_FLOAT64_ARRAY', 'PACKED_BYTE_ARRAY']:
+        if re.search(wrong, content):
+            correct = wrong.title().replace('_', '')  # simplified
+            header.append(f"  🔴 使用了 {wrong} 应改为正确大小写")
+    
+    # 5. 检查关键 key 的等号前后空格（Godot 4 严格模式）
+    strict_keys = ['config_version', 'config/name', 'config/features', 'config/icon',
+                   'run/main_scene', 'window/size/viewport_width', 'window/size/viewport_height']
+    for key in strict_keys:
+        m = re.search(rf'^{re.escape(key)}\s*=\s*(.+)', content, re.MULTILINE)
+        if m:
+            val = m.group(1).strip()
+            # 检查是否有多余空格
+            if m.group(0).startswith(f'{key} ='):
+                header.append(f"  ⚠️ `{key}` 等号前后有空格，建议改为 `{key}={val}`")
+    
+    # 6. 检查 autoload 路径 —— Godot 4 的 \"*res://\" 是正确的单例 autoload 语法。
+    #    仅当发现使用 \"res://\" 而没有 * 前缀时才警告（可能是忘记加单例标记）。
+    #    同时检查 autoload 脚本文件是否实际存在。
+    autoload_entries = re.findall(r'(\w+)="(\*?res://[^"]+)"', content)
+    for entry_name, entry_path in autoload_entries:
+        script_path = project_dir / entry_path.replace("res://", "")
+        if not script_path.exists():
+            header.append(f"  🔴 Autoload '{entry_name}' 脚本不存在: {entry_path}")
+    # 注意：不再将 \"*res://\" 标记为错误 —— 在 Godot 4 中 * 前缀是 autoload 的标准语法
+
+    # 7. 检查是否有 autoload 配置（跳过 addons/ 目录，它们自己管理注册）
+    has_autoload_section = '[autoload]' in content
+    autoload_scripts = [s for s in project_dir.rglob("*.gd") if "addons" not in str(s.relative_to(project_dir)).replace("\\", "/").split("/")]
+    for s in autoload_scripts:
+        sc = s.read_text(encoding="utf-8-sig")
+        if 'signal ' in sc and 'extends Node' in sc and 'func _ready' in sc:
+            name = s.stem
+            if not has_autoload_section or name not in content:
+                header.append(f"  🔴 {name}.gd 看起来是需要 Autoload 的单例脚本，但 project.godot 缺少 [autoload] 配置")
+                header.append(f"     添加 `[autoload]\\n{name}=\"*res://{s.relative_to(project_dir).as_posix()}\"`")
+    
+    if len(header) > 1:
+        return header
+    return []

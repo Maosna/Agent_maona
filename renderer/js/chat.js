@@ -135,151 +135,67 @@ function restoreTaskPanel(messages) {
 
 /* ========== 简版 Markdown ========== */
 
-function simpleMarkdown(text) {
+/* ========== Markdown 渲染（marked.js + highlight.js） ========== */
 
-  if (!text) return "";
-
-  var s = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-  // 保护代码块（先于其他规则，用占位符替换）
-  var codeBlocks = [];
-  s = s.replace(/```[\s\S]*?```/g, function(m) {
-    codeBlocks.push(m);
-    return "\x01CB" + (codeBlocks.length - 1) + "\x01";
+// 配置 marked
+if (typeof marked !== 'undefined') {
+  marked.setOptions({
+    breaks: true,
+    gfm: true,
   });
-
-  // 保护行内代码
-  var inlineCodes = [];
-  s = s.replace(/`([^`]+)`/g, function(m, c) {
-    inlineCodes.push(c);
-    return "\x01IC" + (inlineCodes.length - 1) + "\x01";
-  });
-
-  // 表格渲染
-  var tableBlocks = [];
-  s = s.replace(/(?:^|\n)((?:\|[^\n]+\|\s*\n)+)/g, function(m) {
-    var raw = m.replace(/^\n/, "");
-    var lines = raw.trim().split(/\n/);
-    if (lines.length < 2) return m;
-    var sepLine = lines[1];
-    if (!/^\|[\s\-:|]+\|$/.test(sepLine.trim())) return m;
-    var align = [];
-    sepLine.trim().split("|").filter(Boolean).forEach(function(cell) {
-      cell = cell.trim();
-      if (cell.startsWith(":") && cell.endsWith(":")) align.push("center");
-      else if (cell.endsWith(":")) align.push("right");
-      else align.push("left");
+  if (typeof hljs !== 'undefined') {
+    marked.setOptions({
+      highlight: function(code, lang) {
+        if (lang && hljs.getLanguage(lang)) {
+          try { return hljs.highlight(code, { language: lang }).value; }
+          catch (e) {}
+        }
+        return code;
+      }
     });
-    var dataLines = lines.slice(2).filter(function(l) { return l.trim().indexOf("|") >= 0; });
-    var html = '<div class="table-wrap"><table class="md-table"><thead><tr>';
-    headerLine = lines[0];
-    headerLine.trim().split("|").filter(Boolean).forEach(function(cell, i) {
-      html += '<th' + (align[i] ? ' style="text-align:' + align[i] + '"' : "") + '>' + cell.trim() + '</th>';
-    });
-    html += '</tr></thead><tbody>';
-    dataLines.forEach(function(row) {
-      html += '<tr>';
-      row.trim().split("|").filter(Boolean).forEach(function(cell, i) {
-        html += '<td' + (align[i] ? ' style="text-align:' + align[i] + '"' : "") + '>' + cell.trim() + '</td>';
-      });
-      html += '</tr>';
-    });
-    html += '</tbody></table></div>';
-    tableBlocks.push(html);
-    return "\n" + "\x01TB" + (tableBlocks.length - 1) + "\x01";
-  });
-
-  // ===== 行内 Markdown（正则需在代码块恢复前执行）=====
-
-  // 标题（行首 # )
-  s = s.replace(/^#### (.+)$/gm, '<h5>$1</h5>');
-  s = s.replace(/^### (.+)$/gm, '<h4>$1</h4>');
-  s = s.replace(/^## (.+)$/gm, '<h3>$1</h3>');
-  s = s.replace(/^# (.+)$/gm, '<h2>$1</h2>');
-
-  // 粗体 / 斜体
-  s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  s = s.replace(/\*(.+?)\*/g, '<em>$1</em>');
-
-  // 链接 [text](url)
-  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
-
-  // 引用块 >
-  var lines = s.split("\n");
-  var inQuote = false;
-  var result = [];
-  for (var i = 0; i < lines.length; i++) {
-    var line = lines[i];
-    if (/^&gt; /.test(line)) {
-      if (!inQuote) { result.push('<blockquote>'); inQuote = true; }
-      result.push(line.replace(/^&gt; /, ''));
-    } else {
-      if (inQuote) { result.push('</blockquote>'); inQuote = false; }
-      result.push(line);
-    }
   }
-  if (inQuote) result.push('</blockquote>');
-  s = result.join("\n");
-
-  // 有序列表 1. item（先处理，用占位符标记为 ol）
-  s = s.replace(/^(\d+)\. (.+)$/gm, '\x02LI\x02$2');
-  // 包裹连续的 ol-li
-  s = s.replace(/((?:\x02LI\x02[^\n]*\n?)+)/g, function(m) {
-    var items = m.replace(/\x02LI\x02/g, '<li>').replace(/\n/g, '</li>\n');
-    return '<ol>' + items + '</li></ol>';
-  });
-  // 无序列表 - item / * item（用 li 标记）
-  s = s.replace(/^[-*] (.+)$/gm, '<li>$1</li>');
-  // 包裹连续的 ul-li
-  s = s.replace(/(<li>[\s\S]*?<\/li>)/g, function(m) { return '<ul>' + m + '</ul>'; });
-
-  // 水平分割线
-  s = s.replace(/^---$/gm, '<hr>');
-
-  // 恢复行内代码
-  s = s.replace(/\x01IC(\d+)\x01/g, function(_, i) {
-    return '<code>' + inlineCodes[parseInt(i)] + '</code>';
-  });
-
-  // 恢复代码块（不重新转义，line 137 已全局转义过）+ 复制按钮
-  s = s.replace(/\x01CB(\d+)\x01/g, function(_, i) {
-    var m = codeBlocks[parseInt(i)];
-    var lang = '';
-    var content = m.replace(/^```(\w*)\n?/, function(_, l) { lang = l; return ''; }).replace(/```$/, '');
-    var cls = lang ? ' class="language-' + lang + '"' : '';
-    var langLabel = lang ? '<span class="code-lang">' + lang + '</span>' : '';
-    return '<div class="code-block-wrapper">' +
-      '<button class="copy-btn" onclick="copyCodeBlock(this)" title="复制代码">📋 复制</button>' +
-      langLabel +
-      '<pre><code' + cls + '>' + content + '</code></pre></div>';
-  });
-
-  // 恢复表格
-  s = s.replace(/\x01TB(\d+)\x01/g, function(_, i) {
-    return tableBlocks[parseInt(i)];
-  });
-
-  // 段落：用 <p> 包裹纯文本块（连续的纯文本行，非 HTML 标签开头）
-  s = s.replace(/(\n\n)([^<\n][^\n]+)/g, '$1<p>$2</p>');
-
-  // ⚠️ 不用 \n→<br>，.message-content 的 white-space:pre-wrap 已处理换行
-  return s;
 }
 
-function copyCodeBlock(btn) {
+function renderMarkdown(text) {
+  if (!text) return "";
+  if (typeof marked !== 'undefined') {
+    var html = marked.parse(text);
+    // 给代码块加复制按钮和语言标签
+    html = html.replace(/<pre><code(\s+class="language-(\w+)")?/g, function(m, clsAttr, lang) {
+      var langLabel = lang ? '<span class="cb-lang">' + lang + '</span>' : '';
+      return '<div class="code-block">'
+        + '<button class="cb-copy" onclick="copyCodeInner(this)" title="复制">'
+        + '<img src="/assets/icon-copy.svg" width="14" height="14" alt="copy">'
+        + '</button>'
+        + langLabel
+        + m;
+    });
+    html = html.replace(/<\/code><\/pre>/g, '</code></pre></div>');
+    return html;
+  }
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
+}
+
+// 保留别名兼容旧调用
+function simpleMarkdown(text) { return renderMarkdown(text); }
+
+// 代码块复制
+function copyCodeInner(btn) {
   var code = btn.parentNode.querySelector('code');
   if (!code) return;
   var text = code.textContent || code.innerText || '';
   navigator.clipboard.writeText(text).then(function() {
-    btn.textContent = '✅ 已复制';
-    setTimeout(function() { btn.textContent = '📋 复制'; }, 2000);
+    btn.classList.add('copied');
+    var img = btn.querySelector('img');
+    if (img) img.src = '/assets/icon-copy.svg';  // 保持图标，用 class 表示状态
+    setTimeout(function() { btn.classList.remove('copied'); }, 1500);
   }).catch(function() {
     var ta = document.createElement('textarea');
     ta.value = text; ta.style.position = 'fixed'; ta.style.left = '-9999px';
     document.body.appendChild(ta); ta.select();
     document.execCommand('copy'); document.body.removeChild(ta);
-    btn.textContent = '✅ 已复制';
-    setTimeout(function() { btn.textContent = '📋 复制'; }, 2000);
+    btn.classList.add('copied');
+    setTimeout(function() { btn.classList.remove('copied'); }, 1500);
   });
 }
 
@@ -350,23 +266,23 @@ ChatRenderer.prototype._wrapExecContainer = function(contentEl) {
 
   while (node && node !== this._replyEl) {
 
-    if (node.nodeType === 1 && (node.classList.contains("tool-card") || node.classList.contains("reasoning-block") || node.classList.contains("round-text"))) {
+    // 先保存 nextSibling，因为 round-text 分支里 replaceChild 会让原节点脱离 DOM，nextSibling 变成 null
+    var next = node.nextSibling;
 
+    if (node.nodeType === 1 && (node.classList.contains("tool-card") || node.classList.contains("reasoning-block") || node.classList.contains("round-text") || node.classList.contains("round-text-inline"))) {
       if (node.classList.contains("round-text")) {
-
-        if (current.length > 0) { batches.push(current); current = []; }
-
-        batches.push(null);
-
+        var rtInline = document.createElement("div");
+        rtInline.className = "round-text-inline";
+        rtInline.textContent = node.textContent.substring(0, 2000);
+        node.parentNode.replaceChild(rtInline, node);
+        current.push(rtInline);
       } else {
-
         current.push(node);
-
       }
 
     }
 
-    node = node.nextSibling;
+    node = next;
 
   }
 
@@ -441,7 +357,9 @@ ChatRenderer.prototype.render = function(role, raw, isStreaming, abortPromise) {
   // Trace 和 Metrics 需要的跟踪变量
   this._roundCount = 0;
   this._lastContextTokens = 0;
+  this._convContext = {};  // conversationId -> {tokens, budget, pct, ctxWindow, fmtTokens, fmtWindow}
   this._rawText = "";
+  this._reasoningPre = null;  // 深度思考流式 pre 元素引用
 
   contentEl.appendChild(this._replyEl);
   contentEl.appendChild(this._streamStatus);  // spinner 放文字下面
@@ -492,19 +410,19 @@ ChatRenderer.prototype.render = function(role, raw, isStreaming, abortPromise) {
       if (!this.isStreaming) return;
 
       clearTimeout_();
+      this.updateStatus("深度思考中...", "tool");
 
-      this.updateStatus("\u6df1\u5ea6\u601d\u8003\u4e2d...", "tool");
-
-      var rb = document.createElement("div");
-
-      rb.className = "reasoning-block";
-
-      rb.innerHTML = '<div class="reasoning-header" onclick="let b=this.nextElementSibling;b.style.display=b.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'.reasoning-arrow\').textContent=b.style.display===\'none\'?\'▶\':\'▼\'"><span class="reasoning-arrow">▼</span> \u6df1\u5ea6\u601d\u8003</div><div class="reasoning-body"><pre></pre></div>';
-
-      contentEl.insertBefore(rb, this._replyEl);
-
-      rb.querySelector("pre").textContent = content;
-
+      // 同一段推理流增量追加到同一块；新推理段（_reasoningPre 已置 null）才建新块
+      if (!this._reasoningPre) {
+        var rb = document.createElement("div");
+        rb.className = "reasoning-block";
+        rb.innerHTML = '<div class="reasoning-header" onclick="let b=this.nextElementSibling;b.style.display=b.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'.reasoning-arrow\').textContent=b.style.display===\'none\'?\'▶\':\'▼\'"><span class="reasoning-arrow">▼</span> 深度思考</div><div class="reasoning-body"><pre></pre></div>';
+        contentEl.insertBefore(rb, this._replyEl);
+        this._reasoningPre = rb.querySelector("pre");
+      }
+      if (this._reasoningPre) {
+        this._reasoningPre.textContent += content;
+      }
       this.el.scrollTop = this.el.scrollHeight;
 
     }.bind(this),
@@ -517,7 +435,8 @@ ChatRenderer.prototype.render = function(role, raw, isStreaming, abortPromise) {
 
       clearTimeout_();
 
-      this.removeStatus();
+      // 推理结束，下一段推理将创建新块
+      this._reasoningPre = null;
 
       // 折叠文字前面的所有卡片（推理块 + 工具卡片）
       contentEl.querySelectorAll(":scope > .reasoning-block, :scope > .tool-card").forEach(function(block) {
@@ -533,8 +452,6 @@ ChatRenderer.prototype.render = function(role, raw, isStreaming, abortPromise) {
         if (arrow) arrow.textContent = "\u25b6";
 
       });
-
-      this._replyEl.textContent += token;
 
       this._rawText += token;
 
@@ -556,6 +473,9 @@ ChatRenderer.prototype.render = function(role, raw, isStreaming, abortPromise) {
       if (!this.isStreaming) return;
 
       this._roundCount = round;
+      // 新轮次：重置推理块指针，下一段推理会创建新卡
+      this._reasoningPre = null;
+      this._reasoningRound = round;
       clearTimeout_();
 
       this.updateStatus("\u6b65\u9aa4 " + round + "...", "tool");
@@ -588,6 +508,7 @@ ChatRenderer.prototype.render = function(role, raw, isStreaming, abortPromise) {
         var roundText = document.createElement("span");
 
         roundText.className = "round-text";
+        roundText.style.display = "none";
 
         roundText.textContent = this._replyEl.textContent;
 
@@ -651,20 +572,12 @@ ChatRenderer.prototype.render = function(role, raw, isStreaming, abortPromise) {
           resultDiv.innerHTML = "<pre>" + (result || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") + "</pre>";
         }
         var arrow = card.querySelector(".tool-arrow");
-        if (arrow) arrow.textContent = "▼";
+        if (arrow) arrow.textContent = "▶";
+        card.classList.add("collapsed");
+        var bodyEl = card.querySelector(".tool-card-result");
+        if (bodyEl) bodyEl.style.display = "none";
 
-        // 记录到执行 Trace
-        if (window.tracePanel) {
-          var dur = Date.now() - (card._startTime || Date.now());
-          var ok = !String(result||"").startsWith("错误");
-          window.tracePanel.add(
-            this.currentConversationId, this._roundCount || 0,
-            tool, card._argsText || "", String(result||"").slice(0, 200), dur, ok
-          );
-        }
-      }
-
-      // 预览动作：检测 live_preview 返回的 {"action":"preview", ...}
+        // 预览动作：检测 live_preview 返回的 {"action":"preview", ...}
       try {
         var parsed = JSON.parse(result);
         if (parsed.action === "preview" && parsed.path) {
@@ -675,6 +588,7 @@ ChatRenderer.prototype.render = function(role, raw, isStreaming, abortPromise) {
           }
         }
       } catch (_) {}
+      }
 
     }.bind(this),
 
@@ -683,6 +597,9 @@ ChatRenderer.prototype.render = function(role, raw, isStreaming, abortPromise) {
     onDone: function() {
 
       clearTimeout_();
+
+      // 取消 pending 的增量渲染，避免覆盖格式化输出
+      if (this._renderRAF) { cancelAnimationFrame(this._renderRAF); this._renderRAF = null; }
 
       // 折叠所有卡片（流式结束，让用户看到紧凑的结果）
       contentEl.querySelectorAll(":scope > .reasoning-block, :scope > .tool-card").forEach(function(block) {
@@ -700,24 +617,6 @@ ChatRenderer.prototype.render = function(role, raw, isStreaming, abortPromise) {
       });
 
       this._wrapExecContainer(contentEl);
-
-      // 执行容器默认展开（用户需要看到工具调用摘要）
-
-      var execContainer = contentEl.querySelector(":scope > .execution-details");
-
-      if (execContainer) {
-
-        execContainer.classList.remove("collapsed");
-
-        var execBody = execContainer.querySelector(".execution-body");
-
-        if (execBody) execBody.style.display = "block";
-
-        var execArrow = execContainer.querySelector(".execution-arrow");
-
-        if (execArrow) execArrow.textContent = "\u25bc";
-
-      }
 
       if (this._replyEl && this._rawText) {
 
@@ -752,19 +651,17 @@ ChatRenderer.prototype.render = function(role, raw, isStreaming, abortPromise) {
 
       }
 
-      setTimeout(this.removeStatus.bind(this), 5000);
+      this.removeStatus();
       this._addCopyButton(msg, contentEl);
 
-      // 记录指标
-      if (window.metricsPanel) {
-        var tc = (this._replyEl ? this._replyEl.querySelectorAll(':scope > .tool-card').length : 0) || 0;
-        window.metricsPanel.recordConversation(
-          true, tc, this._lastContextTokens || 0,
-          document.getElementById('model-select')?.value || ''
-        );
-      }
     }.bind(this),
 
+
+
+    onSystem: function(msg) {
+      // 系统消息：显示为短暂状态提示，不混入文本流
+      this.updateStatus(msg, "tool", 3000);
+    }.bind(this),
 
 
     onError: function(e) {
@@ -819,7 +716,7 @@ ChatRenderer.prototype.render = function(role, raw, isStreaming, abortPromise) {
 
       }
 
-      setTimeout(this.removeStatus.bind(this), 5000);
+      this.removeStatus();
 
     }.bind(this),
 
@@ -827,17 +724,22 @@ ChatRenderer.prototype.render = function(role, raw, isStreaming, abortPromise) {
       var ring = document.getElementById("context-ring-fill");
       var pctEl = document.getElementById("context-ring-pct");
       if (!ring || !pctEl) return;
-      // meta.context_window 是模型真实上下文窗口
-      var ctxWindow = (meta && meta.context_window) ? meta.context_window : budget;
-      var realPct = Math.min(100, Math.round(tokens / ctxWindow * 100));
+      var ctxWindow = (meta && meta.context_window) ? meta.context_window : (budget || 200000);
+      var realPct = ctxWindow > 0 ? Math.min(100, Math.round(tokens / ctxWindow * 100)) : 0;
       var offset = 56.55 * (1 - Math.min(1, realPct / 100));
       ring.setAttribute("stroke-dashoffset", offset);
       ring.setAttribute("stroke", realPct > 80 ? "var(--danger)" : realPct > 50 ? "var(--info)" : "var(--accent2)");
-      var label = Math.round(realPct) + "% · " + (tokens/1000).toFixed(0) + "K / " + (ctxWindow/1000).toFixed(0) + "K";
-      if (meta && meta.model) label += " (" + meta.model + ")";
-      pctEl.textContent = label;
-      // 记录到指标面板
-      this._lastContextTokens = tokens;
+      var fmt = function(n) {
+        if (n >= 1000000) return (n/1000000).toFixed(1) + "M";
+        if (n >= 1000) return (n/1000).toFixed(0) + "K";
+        return String(n);
+      };
+      pctEl.textContent = realPct + "% · " + fmt(tokens) + " / " + fmt(ctxWindow);
+      // 保存每对话的上下文状态
+      var cid = this.currentConversationId;
+      if (cid && this._convContext) {
+        this._convContext[cid] = { tokens: tokens, budget: budget, pct: pct, ctxWindow: ctxWindow, realPct: realPct };
+      }
     }
 
   };
@@ -881,19 +783,13 @@ ChatRenderer.prototype._isIncompleteTable = function(text) {
 
 
 ChatRenderer.prototype._doIncrementalRender = function(contentEl) {
-
   if (!this._replyEl || !this._rawText) return;
-
   var raw = this._rawText;
-
   if (this._isIncompleteTable(raw)) return;
-
   var codeOpen = (raw.match(/```/g) || []).length;
-
   if (codeOpen % 2 !== 0) return;
-
-  this._replyEl.innerHTML = simpleMarkdown(raw);
-
+  // 流式渲染只用 textContent 显示原文，避免 marked.parse 中间态乱码
+  this._replyEl.textContent = raw;
 };
 
 
@@ -904,7 +800,47 @@ ChatRenderer.prototype.sendMessage = async function(text) {
 
   if (!text || this.isStreaming) return;
 
-  var messages = (this.messages || []).concat([{ role: "user", content: text }]);
+  // 处理上传的文件：Electron 下传路径，AI 用 read_file 工具按需读取
+  var fullText = text;
+  var files = this._uploadedFiles || [];
+  var sentFiles = [];  // 记录文件名，用于消息气泡展示
+  if (files.length > 0) {
+    var pathBlocks = [];
+    for (var i = 0; i < Math.min(files.length, 5); i++) {
+      var fname = files[i].name;
+      var fpath = files[i].path || "";
+      var isImg = files[i].type && files[i].type.startsWith("image/");
+      sentFiles.push(fname);
+      if (fpath) {
+        if (isImg) {
+          pathBlocks.push("【图片: " + fname + "】\n路径: " + fpath + "\n(可尝试用 ImageGen 工具或直接分析路径)");
+        } else {
+          pathBlocks.push("【文件: " + fname + "】\n路径: " + fpath);
+        }
+      } else {
+        // 无路径回退（网页端）：读内容
+        try {
+          var content = await new Promise(function(resolve, reject) {
+            var reader = new FileReader();
+            reader.onload = function() { resolve(reader.result); };
+            reader.onerror = function() { reject(reader.error); };
+            reader.readAsText(files[i]);
+          });
+          pathBlocks.push("【文件: " + fname + "】\n" + content.slice(0, 3000));
+        } catch (e) {
+          pathBlocks.push("【文件: " + fname + "】\n[读取失败]");
+        }
+      }
+    }
+    if (pathBlocks.length > 0) {
+      fullText = text + "\n\n--- 附件 ---\n" + pathBlocks.join("\n\n");
+    }
+    // 清理预览（数据保留 sentFiles 用于气泡展示）
+    this.clearFiles();
+    this._uploadedFiles = [];
+  }
+
+  var messages = (this.messages || []).concat([{ role: "user", content: fullText }]);
 
   this.messages = messages;
 
@@ -919,6 +855,16 @@ ChatRenderer.prototype.sendMessage = async function(text) {
   userContent.innerHTML = simpleMarkdown(text);
 
   userMsg.appendChild(userContent);
+
+  // 显示已发送的文件标签
+  if (sentFiles.length > 0) {
+    var tagsDiv = document.createElement("div");
+    tagsDiv.className = "message-file-tags";
+    tagsDiv.innerHTML = sentFiles.map(function(f) {
+      return '<span class="file-tag">' + f.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;") + '</span>';
+    }).join("");
+    userMsg.appendChild(tagsDiv);
+  }
 
   this.el.appendChild(userMsg);
 
@@ -935,10 +881,15 @@ ChatRenderer.prototype.sendMessage = async function(text) {
   var personaId = personaSelect ? personaSelect.value : "default";
 
   var parts = modelVal.includes(":") ? modelVal.split(":") : ["", ""];
-
   var provider = parts[0];
-
   var model = parts[1];
+
+  // "自动"模式：清空 provider/model，后端自动选择最佳可用模型
+  if (modelVal === "_auto") {
+    provider = "";
+    model = "";
+    await api.setPref("last_model", "_auto");
+  }
 
   var projectId = app ? app.getCurrentProject() : "agent_maona";
 
@@ -955,17 +906,8 @@ ChatRenderer.prototype.sendMessage = async function(text) {
     }
 
     if (!workspace) {
-
-      var home = (window.electronAPI && window.electronAPI.homeDir) || "";
-
-      if (!home) { home = "C:/Users/Default"; }
-
-      workspace = home.replace(/\\/g, "/") + "/Documents/Maona工作空间";
-
-      app.workspacePath = workspace;
-
-      if (typeof sidebar !== "undefined") sidebar.addWorkspace(workspace);
-
+      // 无工作空间时直接传 null，对话存入"任务"区
+      workspace = null;
     }
 
   }
@@ -1065,6 +1007,12 @@ ChatRenderer.prototype.newChat = function() {
 
   this.currentConversationId = null;
 
+  // 重置上下文用量环
+  var ring = document.getElementById("context-ring-fill");
+  var pctEl = document.getElementById("context-ring-pct");
+  if (ring) { ring.setAttribute("stroke-dashoffset", "56.55"); ring.setAttribute("stroke", "var(--accent2)"); }
+  if (pctEl) pctEl.textContent = "";
+
   if (this.input) { this.input.disabled = false; this.input.focus(); }
 
   if (this.sendBtn) this.sendBtn.style.display = "";
@@ -1130,8 +1078,8 @@ ChatRenderer.prototype._initDragDrop = function() {
       html += '<div class="drop-file-item"><span>' + fname + '</span><span class="file-remove" onclick="this.parentElement.remove();if(!document.querySelector(\'.drop-file-item\'))document.getElementById(\'drop-preview\').style.display=\'none\'">x</span></div>';
     }
     filesDiv.innerHTML = html;
-    // 存储文件引用
-    self._uploadedFiles = self._uploadedFiles || [];
+    // 存储文件引用（保留 Electron 的 path 属性用于后端读取）
+    self._uploadedFiles = [];
     for (var i = 0; i < files.length; i++) {
       self._uploadedFiles.push(files[i]);
     }
@@ -1222,6 +1170,23 @@ function restoreConversationMessages(messages, conversationId) {
   // 保留 conversationId 以便后续消息正确关联
   if (conversationId) {
     window.chat.currentConversationId = conversationId;
+    // 恢复该对话的上下文用量显示
+    var saved = window.chat._convContext && window.chat._convContext[conversationId];
+    if (saved) {
+      var ring = document.getElementById("context-ring-fill");
+      var pctEl = document.getElementById("context-ring-pct");
+      if (ring && pctEl) {
+        var offset = 56.55 * (1 - Math.min(1, (saved.realPct || 0) / 100));
+        ring.setAttribute("stroke-dashoffset", offset);
+        ring.setAttribute("stroke", (saved.realPct || 0) > 80 ? "var(--danger)" : (saved.realPct || 0) > 50 ? "var(--info)" : "var(--accent2)");
+        var fmt = function(n) {
+          if (n >= 1000000) return (n/1000000).toFixed(1) + "M";
+          if (n >= 1000) return (n/1000).toFixed(0) + "K";
+          return String(n);
+        };
+        pctEl.textContent = (saved.realPct || 0) + "% · " + fmt(saved.tokens || 0) + " / " + fmt(saved.ctxWindow || 200000);
+      }
+    }
   }
 
   // 懒加载分页：保留有内容或工具调用的消息
@@ -1255,7 +1220,7 @@ function restoreConversationMessages(messages, conversationId) {
 
         if (batchTools + batchReasonings < 2) { html += batchHtml; batchTools = 0; batchReasonings = 0; batchHtml = ""; return; }
 
-        html += '<div class="execution-details"><div class="execution-header" onclick="let e=this.nextElementSibling;e.style.display=e.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'.execution-arrow\').textContent=e.style.display===\'none\'?\'▶\':\'▼\'"><span class="execution-arrow">▼</span><span class="execution-summary">工具调用 ' + batchTools + ' \u00b7 过程消息 ' + batchReasonings + '</span></div><div class="execution-body" style="display:block">' + batchHtml + '</div></div>';
+        html += '<div class="execution-details collapsed"><div class="execution-header" onclick="let e=this.nextElementSibling;e.style.display=e.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'.execution-arrow\').textContent=e.style.display===\'none\'?\'▶\':\'▼\'"><span class="execution-arrow">▶</span><span class="execution-summary">工具调用 ' + batchTools + ' \u00b7 过程消息 ' + batchReasonings + '</span></div><div class="execution-body" style="display:none">' + batchHtml + '</div></div>';
 
         batchTools = 0;
 
@@ -1271,7 +1236,7 @@ function restoreConversationMessages(messages, conversationId) {
 
         var rText = reasonings[i] || "";
 
-        if (tc.round_text) { flushBatch(); html += '<span class="round-text">' + tc.round_text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;") + '</span>'; }
+        if (tc.round_text) { batchReasonings++; var safeRT = tc.round_text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); batchHtml += '<div class="round-text-inline">' + safeRT.substring(0, 2000) + '</div>'; }
 
         if (rText) { batchReasonings++; batchHtml += '<div class="reasoning-block collapsed"><div class="reasoning-header" onclick="let b=this.nextElementSibling;b.style.display=b.style.display===\'none\'?\'block\':\'none\';this.querySelector(\'.reasoning-arrow\').textContent=b.style.display===\'none\'?\'▶\':\'▼\'"><span class="reasoning-arrow">▶</span> 深度思考</div><div class="reasoning-body" style="display:none"><pre>' + rText.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;") + '</pre></div></div>'; }
 
@@ -1340,8 +1305,28 @@ function restoreConversationMessages(messages, conversationId) {
       content.className = "message-content";
 
       if (msg.role === "user") {
-
-        content.innerHTML = simpleMarkdown(msg.content || "");
+        // 恢复用户消息时，附件内容折叠为文件标签
+        var userText = msg.content || "";
+        var attachIdx = userText.indexOf("\n\n--- 附件 ---") >= 0
+          ? userText.indexOf("\n\n--- 附件 ---")
+          : userText.indexOf("\n\n--- 附件内容 ---");
+        var fileTags = "";
+        if (attachIdx >= 0) {
+          var mainText = userText.slice(0, attachIdx);
+          var attachBlock = userText.slice(attachIdx);
+          // 提取文件名
+          var fnames = (attachBlock.match(/【文件:\s*([^】]+)】/g) || []).map(function(m) {
+            return m.replace(/【文件:\s*/g, "").replace(/】/g, "");
+          });
+          fileTags = fnames.length > 0
+            ? '<div class="message-file-tags" style="margin-top:6px">' + fnames.map(function(f) {
+                return '<span class="file-tag">' + f.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;") + '</span>';
+              }).join("") + '</div>'
+            : "";
+          content.innerHTML = (mainText ? simpleMarkdown(mainText) : "") + fileTags;
+        } else {
+          content.innerHTML = simpleMarkdown(userText);
+        }
 
       } else {
 

@@ -40,8 +40,6 @@ const app = {
     }
 
     sidebar.init();
-    if (window.tracePanel) window.tracePanel.init();
-    if (window.metricsPanel) window.metricsPanel.init();
 
     // 导航按钮（设置、新任务等）
     document.querySelectorAll(".nav-btn").forEach(btn => {
@@ -148,21 +146,28 @@ const app = {
     if (bar) bar.style.display = "";
   },
 
-  /** 重置工作空间为默认状态 */
+  /** 重置工作空间为默认状态（切回任务模式） */
   async resetWorkspace() {
-    // 恢复到默认工作空间
+    // 尝试恢复到默认工作空间
     try {
       const data = await api.getDefaultWorkspace();
       this.workspacePath = data.path || null;
     } catch { this.workspacePath = null; }
-    // 恢复 ws-bar 文字和显示
+    // ws-bar：有工作空间显示名称，无工作空间显示"选择工作空间"供点击切换
     const bar = document.getElementById("ws-bar");
-    if (bar) {
-      bar.textContent = "默认工作空间";
-      bar.style.display = "";
+    if (this.workspacePath) {
+      if (bar) {
+        bar.textContent = this.workspacePath.replace(/\\/g, "/").split("/").pop();
+        bar.style.display = "";
+      }
+      sidebar.activeWorkspace = this.workspacePath;
+    } else {
+      if (bar) {
+        bar.textContent = "选择工作空间";
+        bar.style.display = "";
+      }
+      sidebar.activeWorkspace = null;
     }
-    // 重置侧栏激活状态
-    sidebar.activeWorkspace = this.workspacePath;
     sidebar.render();
   },
 
@@ -240,15 +245,37 @@ const app = {
       const providers = data.providers || [];
       const select = document.getElementById("model-select");
       if (!providers.length) { select.innerHTML = '<option value="">请先添加 API</option>'; return; }
-      select.innerHTML = providers.map((p) =>
-        (p.models || ["default"]).map((m) => `<option value="${htmlEscape(p.name)}:${htmlEscape(m)}">${htmlEscape(p.name)} / ${htmlEscape(m)}</option>`).join("")
-      ).join("");
+      let html = '<option value="_auto" style="color:var(--accent);font-weight:600">自动（智能选择）</option>';
+      for (const p of providers) {
+        let models = [];
+        try {
+          const md = await api.getModels(p.name);
+          models = (md.models || []).map(m => typeof m === "string" ? { id: m, enabled: true } : m);
+        } catch (e) {
+          models = (p.models || []).map(m => typeof m === "string" ? { id: m, enabled: true } : m);
+        }
+        const enabledModels = models.filter(m => m.enabled !== false);
+        if (enabledModels.length === 0) continue;
+        html += '<optgroup label="' + htmlEscape(p.name) + '">';
+        for (const m of enabledModels) {
+          const mid = m.id || m;
+          html += '<option value="' + htmlEscape(p.name) + ':' + htmlEscape(mid) + '">' + htmlEscape(mid) + '</option>';
+        }
+        html += '</optgroup>';
+      }
+      select.innerHTML = html || '<option value="">请先启用模型</option>';
+      // 使 buildModelSelector 对全局可用
+      window.buildModelSelector = this.loadAvailableProviders.bind(this);
 
-      // 恢复上次选择的模型
+      // 恢复上次选择的模型（包括"自动"）
       const lastModel = await api.getPref("last_model");
       if (lastModel) {
-        const option = select.querySelector(`option[value="${lastModel}"]`);
-        if (option) option.selected = true;
+        if (lastModel === "_auto") {
+          select.value = "_auto";
+        } else {
+          const option = select.querySelector(`option[value="${lastModel}"]`);
+          if (option) option.selected = true;
+        }
       }
       // 查余额
       this.updateBalance();
@@ -257,8 +284,10 @@ const app = {
 
   async updateBalance() {
     const el = document.getElementById("balance-display");
-    const selVal = document.getElementById("model-select").value.split(":");
-    const provider = selVal[0];
+    const selVal = document.getElementById("model-select").value;
+    if (selVal === "_auto") { el.textContent = "自动"; el.title = "自动选择最佳可用模型"; return; }
+    const parts = selVal.split(":");
+    const provider = parts[0];
     if (!provider) { el.textContent = ""; return; }
     el.textContent = "查询中...";
     try {
@@ -363,8 +392,10 @@ const app = {
     this.currentPage = page;
     document.getElementById("page-chat").classList.toggle("active", page === "chat");
     document.getElementById("page-settings").classList.toggle("active", page === "settings");
+    document.getElementById("page-usage").classList.toggle("active", page === "usage");
     if (page === "settings") { settings.init(); this.loadGeneralSettings(); }
     if (page === "chat") window.chat?.input?.focus();
+    if (page === "usage") { window._usagePage = 0; if (window._usageRefresh) window._usageRefresh(); }
   },
 
   // ===== 技能中心 =====

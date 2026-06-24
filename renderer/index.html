@@ -35,6 +35,7 @@
       </div>
 
       <div class="sidebar-bottom">
+        <button class="nav-btn" data-page="usage">用量</button>
         <button class="nav-btn" data-page="settings">设置</button>
         <div class="sidebar-footer">
           <span id="backend-status" class="status-dot offline"></span>
@@ -117,32 +118,6 @@
           </div>
           <div class="ws-bar" id="ws-bar" onclick="event.stopPropagation();pickWorkspace()">默认工作空间</div>
         </div>
-
-        <!-- 执行 Trace 面板 -->
-        <div id="trace-container" style="display:none;max-height:200px;overflow-y:auto;border-top:1px solid var(--border);background:var(--bg)">
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 10px;background:var(--bg2);border-bottom:1px solid var(--border)">
-            <span style="font-size:11px;color:var(--text-dim)">📊 执行日志（最近 20 条）</span>
-            <button onclick="tracePanel.clear()" style="font-size:10px;color:var(--text-dim);background:none;border:none;cursor:pointer">清空</button>
-          </div>
-          <div id="trace-panel"></div>
-        </div>
-        <div id="trace-toggle" onclick="tracePanel.toggle()" style="
-          padding:4px 10px;font-size:11px;color:var(--text-dim);cursor:pointer;
-          background:var(--bg2);border-top:1px solid var(--border);text-align:center;
-        ">▶ 执行日志</div>
-
-        <!-- 指标面板 -->
-        <div id="metrics-container" style="display:none;max-height:260px;overflow-y:auto;border-top:1px solid var(--border);background:var(--bg)">
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 10px;background:var(--bg2);border-bottom:1px solid var(--border)">
-            <span style="font-size:11px;color:var(--text-dim)">📈 Agent 指标</span>
-            <button onclick="metricsPanel.reset()" style="font-size:10px;color:var(--danger);background:none;border:none;cursor:pointer">重置</button>
-          </div>
-          <div id="metrics-panel"></div>
-        </div>
-        <div onclick="metricsPanel.toggle()" style="
-          padding:4px 10px;font-size:11px;color:var(--text-dim);cursor:pointer;
-          background:var(--bg2);border-top:1px solid var(--border);text-align:center;
-        ">▶ Agent 指标</div>
       </section>
 
       <!-- 设置页 -->
@@ -160,16 +135,35 @@
           <button class="tab-btn" data-tab="skills">技能</button>
         </div>
         <div id="tab-providers" class="tab-content active">
-          <div id="providers-list" class="providers-list"><p class="loading">加载中...</p></div>
-          <div class="provider-add">
-            <h3 id="provider-form-title">添加 API</h3>
-            <input type="hidden" id="edit-provider-name" value="">
-            <label>名称 <input type="text" id="new-provider-name" placeholder="例如: DeepSeek, GLM..."></label>
-            <label>API URL <input type="text" id="new-provider-url" placeholder="https://api.deepseek.com/v1"></label>
-            <label>API Key <input type="password" id="new-provider-key" placeholder="sk-..."></label>
-            <button id="btn-add-provider" class="btn-primary">添加</button>
-            <button id="btn-cancel-edit" class="btn-sm" style="display:none">取消编辑</button>
-            <span id="settings-status" class="status-msg"></span>
+          <div class="provider-layout">
+            <div class="provider-sidebar">
+              <div class="provider-sidebar-header">
+                <span>API 提供商</span>
+                <button id="btn-new-provider" class="btn-icon" title="添加 API">＋</button>
+              </div>
+              <div id="providers-list" class="providers-list"><p class="loading">加载中...</p></div>
+            </div>
+            <div class="provider-main">
+              <div id="provider-detail" class="provider-detail">
+                <p class="loading">选择一个 Provider 查看模型</p>
+              </div>
+            </div>
+          </div>
+          <!-- 添加/编辑表单（模态） -->
+          <div id="provider-form-modal" class="modal" style="display:none">
+            <div class="modal-bg" onclick="settings.cancelEdit()"></div>
+            <div class="modal-content">
+              <h3 id="provider-form-title">添加 API</h3>
+              <input type="hidden" id="edit-provider-name" value="">
+              <label>名称 <input type="text" id="new-provider-name" placeholder="例如: DeepSeek, GLM..."></label>
+              <label>API URL <input type="text" id="new-provider-url" placeholder="https://api.deepseek.com/v1"></label>
+              <label>API Key <input type="password" id="new-provider-key" placeholder="sk-..."></label>
+              <div class="form-actions">
+                <button id="btn-add-provider" class="btn-primary">添加</button>
+                <button id="btn-cancel-edit" class="btn-sm" onclick="settings.cancelEdit()">取消</button>
+              </div>
+              <span id="settings-status" class="status-msg"></span>
+            </div>
           </div>
         </div>
         <div id="tab-model" class="tab-content">
@@ -499,7 +493,52 @@
           <div id="skills-detail" style="display:none"></div>
         </div>
       </section>
+
+      <!-- 用量统计页 -->
+      <section id="page-usage" class="page">
+        <div class="usage-header">
+          <h2>用量统计</h2>
+          <button class="btn-icon" onclick="app.navigate('chat')" title="返回对话">← 返回</button>
+        </div>
+        <div class="usage-filters">
+          <select id="usage-days"><option value="1">今天</option><option value="7" selected>近7天</option><option value="30">近30天</option><option value="90">近90天</option></select>
+          <select id="usage-model"><option value="">全部模型</option></select>
+          <button id="btn-usage-refresh">刷新</button>
+          <button id="btn-usage-export">导出 CSV</button>
+        </div>
+        <div class="usage-content">
+          <div class="usage-stats" id="usage-stats">
+            <div class="usage-stat-card"><span id="stat-requests">-</span><small>请求数</small></div>
+            <div class="usage-stat-card"><span id="stat-tokens">-</span><small>Token</small></div>
+            <div class="usage-stat-card"><span id="stat-input">-</span><small>输入</small></div>
+            <div class="usage-stat-card"><span id="stat-output">-</span><small>输出</small></div>
+            <div class="usage-stat-card"><span id="stat-cost">-</span><small>成本</small></div>
+          </div>
+          <div class="usage-table-wrap">
+            <table class="usage-table" id="usage-table-body"></table>
+          </div>
+          <div class="usage-pager" id="usage-pager"></div>
+        </div>
+      </section>
     </main>
+
+    <!-- 用量面板（旧，保留兼容） -->
+    <div id="usage-panel" class="usage-panel" style="display:none">
+      <div class="usage-panel-header">
+        <h3>用量统计</h3>
+        <button class="usage-close" onclick="document.getElementById('usage-panel').style.display='none'">×</button>
+      </div>
+      <div class="usage-panel-body">
+        <div class="usage-section">
+          <h4>当前对话</h4>
+          <table id="usage-current"><tr><td>加载中...</td></tr></table>
+        </div>
+        <div class="usage-section">
+          <h4>本次会话</h4>
+          <table id="usage-session"><tr><td>加载中...</td></tr></table>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- 隐藏的系统文件夹选择器 -->
@@ -535,6 +574,10 @@
       var file = src ? src.split('/').pop() : '?';
       el.textContent = '[JS错误] ' + file + ':' + line + ' ' + String(msg).slice(0,150);
       el.style.display = '';
+      // 收集到调试包
+      if (!window._maonaErrors) window._maonaErrors = [];
+      window._maonaErrors.push({ time: new Date().toISOString(), msg: String(msg).slice(0,200), src: src, line: line });
+      if (window._maonaErrors.length > 50) window._maonaErrors.shift();  // 限 50 条
       setTimeout(()=>{ if(el) el.style.display='none'; }, 10000);
     };
     // 未处理的 Promise rejection — 显示在独立位置
@@ -551,11 +594,11 @@
   <script src="/js/api.js"></script>
   <script src="/js/sidebar.js"></script>
   <script src="/js/chat.js"></script>
-  <script src="/js/trace.js"></script>
-  <script src="/js/metrics.js"></script>
   <script src="/js/settings.js"></script>
   <script src="/js/skills.js"></script>
   <script src="/js/app.js"></script>
+  <script src="/js/usage.js"></script>
+  <script src="/assets/marked.min.js"></script>
   <script src="/assets/highlight.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
   <script>
@@ -617,39 +660,66 @@
               item.tool_cards.push({
                 name: (card.getAttribute("data-tool") || (card.querySelector(".tool-card-title") || {}).textContent || "?"),
                 summary: (card.querySelector(".tool-card-summary") || {}).textContent || "",
-                result: (card.querySelector(".tool-card-result pre") || {}).textContent || ""
+                result: ((card.querySelector(".tool-card-result pre") || {}).textContent || "").substring(0, 1000)
               });
             }
           }
-          // 最终回复文字
-          var textEl = m.querySelector(".message-content span:last-child, .message-content");
-          if (textEl) item.final_text = textEl.textContent.trim().substring(0, 3000);
+          // 最终回复文字 —— 只取消息主体中的纯文本（排除 round-text 和执行块）
+          var bodyEl = m.querySelector(".message-content");
+          var finalText = "";
+          if (bodyEl) {
+            var clone = bodyEl.cloneNode(true);
+            // 移除所有 UI 结构：执行详情、推理块、round-text、工具卡片
+            var toRemove = clone.querySelectorAll(".execution-details, .execution-header, .execution-body, .reasoning-block, .reasoning-header, .reasoning-body, .round-text, .round-text-inline, .tool-card, .tool-card-header, .tool-card-result");
+            for (var eb = 0; eb < toRemove.length; eb++) {
+              toRemove[eb].parentNode.removeChild(toRemove[eb]);
+            }
+            finalText = clone.textContent.trim();
+          }
+          item.final_text = finalText.substring(0, 3000);
           domItems.push(item);
         }
         deb.dom_detail = domItems;
 
-        // 4. 错误
-        var errEls = document.querySelectorAll("[style*='var(--danger)']");
-        if (errEls.length) {
-          deb.errors = [];
-          for (var ei = 0; ei < errEls.length; ei++) {
-            deb.errors.push(errEls[ei].textContent.substring(0, 500));
-          }
-        }
-
-        // 5. 流状态
+        // 流状态
         deb.isStreaming = (window.chat && window.chat.isStreaming) || false;
 
-        // 6. 异步获取后端诊断信息后下载
-        fetch("/api/diagnostics").then(function(r) { return r.json(); }).then(function(d) {
+        // 前端错误
+        deb.frontend_errors = window._maonaErrors || [];
+
+        // 后端诊断 + 运行时数据 + 全对话导出
+        var token = window._sessionToken || localStorage.getItem("maona_token") || "";
+        fetch("/api/diagnostics", { headers: { "x-session-token": token } }).then(function(r) { return r.json(); }).then(function(d) {
           deb.diagnostics = d;
-          var c2 = JSON.stringify(deb, null, 2);
-          downloadFile(c2, "Maona_debug_" + deb.exportTime.slice(0, 10) + ".json");
+          // 同时拉取全对话数据（包含所有历史对话的完整消息）
+          return fetch("/api/conversations/dump", { headers: { "x-session-token": token } }).then(function(r) { return r.json(); });
+        }).then(function(fullDump) {
+          if (fullDump && !fullDump.error) {
+            deb.all_conversations = fullDump;
+          }
+          // 人性化摘要
+          var d = deb.diagnostics || {};
+          var rt = d.runtime || {};
+          deb.summary = [
+            "=== Maona 调试摘要 ===",
+            "时间: " + deb.exportTime,
+            "模型: " + deb.provider + " / " + deb.model,
+            "对话 ID: " + deb.conversationId,
+            "工作空间: " + deb.workspace,
+            "Agent 总轮数: " + (rt.total_rounds != null ? rt.total_rounds : "?") + " | 工具调用: " + (rt.total_tool_calls != null ? rt.total_tool_calls : "?"),
+            "Phase 转换: " + ((rt.phase_events || []).map(function(e){return e.from+"→"+e.to}).join(", ") || "无"),
+            "质量闸门: " + ((rt.quality_gates || []).filter(function(g){return g.action==="blocked"}).length) + " 次拦截, " + ((rt.quality_gates || []).filter(function(g){return g.action==="passed"}).length) + " 次通过",
+            "上下文压缩: " + ((rt.compressions || []).length) + " 次 | 代码分析: " + ((rt.code_analysis || []).length) + " 次 | 自省注入: " + ((rt.injections || []).length) + " 次",
+            "前端错误: " + (window._maonaErrors ? window._maonaErrors.length : 0) + " 条",
+            d.mcp_available ? ("MCP: 就绪 (" + d.mcp_tool_count + " 工具)") : "MCP: 未连接",
+          ].join("\n");
+          downloadFile(JSON.stringify(deb, null, 2), "Maona_debug_" + deb.exportTime.slice(0, 10) + ".json");
         }).catch(function() {
-          deb.diagnostics = { error: "无法连接后端" };
-          var c2 = JSON.stringify(deb, null, 2);
-          downloadFile(c2, "Maona_debug_" + deb.exportTime.slice(0, 10) + ".json");
+          deb.diagnostics = deb.diagnostics || { error: "无法连接后端" };
+          deb.summary = deb.summary || "诊断数据不可用（后端未响应）";
+          downloadFile(JSON.stringify(deb, null, 2), "Maona_debug_" + deb.exportTime.slice(0, 10) + ".json");
         });
+        return;  // 调试包已处理完毕，不继续普通导出
       }
 
       // 普通导出
@@ -713,9 +783,9 @@
         html += '<div class="drop-file-item"><span>' + name + '</span><span class="file-remove" onclick="this.parentElement.remove();if(!document.querySelector(\'.drop-file-item\'))document.getElementById(\'drop-preview\').style.display=\'none\'">x</span></div>';
       }
       filesDiv.innerHTML = html;
-      // 同时追加到输入框
-      var chatInput = document.getElementById("chat-input");
-      if (chatInput && window.chat && window.chat._uploadedFiles) {
+      // 存储文件引用
+      if (window.chat) {
+        window.chat._uploadedFiles = window.chat._uploadedFiles || [];
         for (var i = 0; i < files.length; i++) {
           window.chat._uploadedFiles.push(files[i]);
         }

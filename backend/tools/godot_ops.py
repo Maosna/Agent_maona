@@ -24,7 +24,7 @@ def _create_minimal_project(game_dir: Path) -> str:
         'config/features=PackedStringArray("4.5")\n'
         'config/icon="res://icon.svg"\n'
     )
-    (game_dir / "project.godot").write_text(cfg, encoding='utf-8')
+    (game_dir / "project.godot").write_text(cfg, encoding='utf-8-sig')
 
     # 最小默认场景
     main_scene = (
@@ -33,14 +33,14 @@ def _create_minimal_project(game_dir: Path) -> str:
         '[node name="Main" type="Node2D"]\n'
         'script = ExtResource("1")\n'
     )
-    (game_dir / "main.tscn").write_text(main_scene, encoding='utf-8')
+    (game_dir / "main.tscn").write_text(main_scene, encoding='utf-8-sig')
 
     main_script = (
         'extends Node2D\n\n'
         'func _ready():\n'
         '    print("Hello from Maona!")\n'
     )
-    (game_dir / "main.gd").write_text(main_script, encoding='utf-8')
+    (game_dir / "main.gd").write_text(main_script, encoding='utf-8-sig')
 
     return f"Godot 项目已创建: {game_dir}"
 
@@ -88,16 +88,31 @@ def check_godot_project(project_dir: str = "", **kw) -> str:
         return f"目录不存在: {pd}"
     if not (pd / "project.godot").exists():
         return f"❌ {pd} 不是 Godot 项目（缺少 project.godot）"
+    # 前置：文件实际大小检查（防止 write_file 写入空文件/损坏）
+    pg_size = (pd / "project.godot").stat().st_size
+    if pg_size < 10:
+        return f"❌ project.godot 文件异常（仅 {pg_size} 字节），内容不完整"
 
     issues = []
     ok_count = 0
 
-    # 1. project.godot 关键字段
-    content = (pd / "project.godot").read_text(encoding="utf-8")
-    if 'config_version=5' in content: ok_count += 1
-    else: issues.append("⚠️ project.godot 缺少 config_version=5")
+    # 1. project.godot 完整校验
+    content = (pd / "project.godot").read_text(encoding="utf-8-sig")
+    # 基础格式：必须以 godot 引擎标识开头
+    if not content.strip().startswith(";") and not content.strip().startswith("config_version"):
+        issues.append("❌ project.godot 格式异常：不以注释或 config_version 开头，Godot 无法识别")
+    else:
+        if 'config_version=5' in content: ok_count += 1
+        else: issues.append("❌ project.godot 缺少 config_version=5（非 Godot 4 项目）")
     if 'config/name=' in content: ok_count += 1
-    else: issues.append("❌ project.godot 缺少 config/name")
+    else: issues.append("❌ project.godot 缺少 config/name（Godot 项目必须有名��）")
+    # 验证默认总线布局引用（新版 Godot 4 可能需要）
+    if 'run/main_scene' in content:
+        main_scene = _re.search(r'run/main_scene\s*=\s*"([^"]+)"', content)
+        if main_scene:
+            ms_path = main_scene.group(1).replace("res://", "")
+            if not (pd / ms_path).exists():
+                issues.append(f"❌ project.godot run/main_scene 指向不存在的场景: {ms_path}")
     if '[rendering]' in content: ok_count += 1
     else: issues.append("⚠️ project.godot 缺少 [rendering] 段")
 
@@ -105,7 +120,7 @@ def check_godot_project(project_dir: str = "", **kw) -> str:
     tscn_files = list(pd.rglob("*.tscn"))
     if tscn_files:
         for tf in sorted(tscn_files):
-            tf_content = tf.read_text(encoding="utf-8")
+            tf_content = tf.read_text(encoding="utf-8-sig")
             rel = tf.relative_to(pd)
             bad_exprs = _re.findall(r'= *(\w+\.\w+\.new\(\))', tf_content)
             for expr in bad_exprs:
@@ -127,7 +142,7 @@ def check_godot_project(project_dir: str = "", **kw) -> str:
     ag_p = parent / "active-game.json"
     if ag_p.exists():
         try:
-            ag = json.loads(ag_p.read_text(encoding="utf-8"))
+            ag = json.loads(ag_p.read_text(encoding="utf-8-sig"))
             if Path(ag.get("gameDir", "")).resolve() == pd: ok_count += 1
             else: issues.append(f"❌ active-game.json gameDir 与当前目录不一致")
         except Exception: issues.append("⚠️ active-game.json 无法解析")
@@ -221,7 +236,7 @@ async def get_godot_errors(project_dir: str = "", **kw) -> str:
     for log_dir in log_paths:
         if log_dir.exists():
             for log_file in sorted(log_dir.glob("*.txt"), key=lambda f: f.stat().st_mtime, reverse=True)[:1]:
-                content = log_file.read_text(encoding="utf-8", errors="replace")
+                content = log_file.read_text(encoding="utf-8-sig", errors="replace")
                 # 提取最近 50 行的 ERROR/WARNING
                 lines = content.split("\n")
                 errors = [l for l in lines[-200:] if "ERROR" in l.upper() or "SCRIPT ERROR" in l.upper()]
@@ -325,7 +340,7 @@ def _check_python(pd: Path) -> list:
     syntax_errors = 0
     for f in py_files:
         try:
-            compile(f.read_text(encoding="utf-8"), str(f), "exec")
+            compile(f.read_text(encoding="utf-8-sig"), str(f), "exec")
         except SyntaxError as e:
             lines.append(f"  🔴 语法错误: {f.name}:{e.lineno} - {e.msg}")
             syntax_errors += 1
@@ -340,7 +355,7 @@ def _check_python(pd: Path) -> list:
         "ast","inspect","unittest","warnings","traceback","copy","textwrap","dataclasses","enum","statistics"})
     missing = set()
     for f in py_files:
-        for m in _re.finditer(r'(?:from\s+(\S+)\s+import|import\s+(\S+))', f.read_text(encoding="utf-8"), _re.MULTILINE):
+        for m in _re.finditer(r'(?:from\s+(\S+)\s+import|import\s+(\S+))', f.read_text(encoding="utf-8-sig"), _re.MULTILINE):
             mod = (m.group(1) or m.group(2) or "").split(".")[0]
             if mod and mod not in STDLIB and not mod.startswith("."):
                 missing.add(mod)
@@ -360,7 +375,7 @@ def _check_web(pd: Path) -> list:
 
     # HTML 基本结构检查
     for f in html_files[:10]:  # 只检查前10个
-        content = f.read_text(encoding="utf-8", errors="replace")
+        content = f.read_text(encoding="utf-8-sig", errors="replace")
         if "<!DOCTYPE html>" not in content and "<!doctype html>" not in content.lower():
             lines.append(f"  🟡 {f.name}: 缺少 DOCTYPE 声明")
         if "<title>" not in content:
@@ -373,7 +388,7 @@ def _check_web(pd: Path) -> list:
     pkg = pd / "package.json"
     if pkg.exists():
         try:
-            data = json.loads(pkg.read_text(encoding="utf-8"))
+            data = json.loads(pkg.read_text(encoding="utf-8-sig"))
             deps = data.get("dependencies", {})
             dev = data.get("devDependencies", {})
             lines.append(f"  📦 package.json: {len(deps)} deps + {len(dev)} devDeps")
@@ -392,4 +407,42 @@ def _check_godot(pd: Path) -> list:
     lines.append(f"  GDScript: {len(reds)} 个 🔴 错误")
     for r in reds[:5]:
         lines.append(f"    {r.strip()}")
+
+
+def verify_project_opens(project_dir: str = "", **kw) -> str:
+    """用 Godot CLI 实际加载项目做全量校验。比静态检查更可靠，能捕获 TSCN/脚本/资源加载错误。"""
+    import subprocess, glob as _glob, os
+    if not project_dir:
+        return "请提供 project_dir"
+    pd = Path(project_dir).resolve()
+    if not pd.exists():
+        return f"❌ 目录不存在: {pd}"
+    if not (pd / "project.godot").exists():
+        return f"❌ 不是 Godot 项目（无 project.godot）"
+    # 找 Godot 编辑器（先查工作空间，再查系统）
+    parent = pd.parent
+    editors = _glob.glob(str(parent / "godot-editor" / "Godot_v*.exe"))
+    if not editors:
+        editors = _glob.glob(str(parent / "godot-editor" / "Godot*.exe"))
+    if not editors:
+        return "❌ 找不到 Godot 编辑器（godot-editor/ 下无 Godot_v*.exe），无法做运行时验证"
+    editor = editors[0]
+    try:
+        r = subprocess.run(
+            [editor, "--headless", "--check-only", "--path", str(pd)],
+            capture_output=True, text=True, timeout=30, cwd=str(pd)
+        )
+        output = (r.stdout + r.stderr).strip()
+        if r.returncode == 0 and ("ERROR" not in output.upper() or "0 errors" in output.lower()):
+            return f"✅ Godot 项目加载验证通过\n{output[:500]}"
+        else:
+            # 提取错误
+            errors = [l for l in output.split("\n") if "ERROR" in l.upper() or "error" in l.lower()]
+            if not errors:
+                errors = [l for l in output.split("\n") if l.strip()][-10:]
+            return f"❌ Godot 加载失败 (exit={r.returncode})\n{chr(10).join(errors[:10])}\n\n完整输出:\n{output[-1000:]}"
+    except subprocess.TimeoutExpired:
+        return "❌ Godot 验证超时（30秒）"
+    except Exception as e:
+        return f"❌ 运行 Godot 失败: {e}"
     return lines

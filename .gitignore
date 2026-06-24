@@ -12,7 +12,9 @@ __pycache__/
 *.pyo
 backend/.session_token
 backend/$null
+backend/$null}
 backend/.maona/
+**/*$null*
 
 # IDE
 .vscode/
@@ -27,6 +29,9 @@ Thumbs.db
 .workbuddy/
 .codebuddy/
 .godot-mcp/
+
+# Auto-generated skills (session artifacts)
+data/skills/auto-*
 
 # User-specific state (auto-regenerated)
 data/skills/state.json
@@ -45,3 +50,9 @@ test_workspace/
 # Debug artifacts
 docs/known_bugs.json
 docs/decision.json
+
+# User data (conversations, tasks, tool state - do NOT track)
+backend/data/tasks/
+backend/data/tool_state.json
+scripts/test_*.py
+renderer/test_*.html

@@ -1,0 +1,8 @@
+[
+  {
+    "error": "autoload 路径有 *res:// 错误",
+    "fix": "Godot 4 中 autoload 单例语法为 \"*res://path.gd\"，* 前缀表示单例，是正确的。验证器此为假阳性。",
+    "file": "",
+    "time": "2026-06-22 22:07"
+  }
+]

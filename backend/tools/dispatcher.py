@@ -6,12 +6,12 @@ from .shell import run_command, web_search, web_fetch, download_file, run_python
 from .browser import browser_navigate, browser_screenshot, browser_click, browser_fill, browser_extract, browser_wait, browser_close
 from .lsp import lsp_diagnose, lsp_references, lsp_hover, lsp_outline, lsp_format
 from .deploy import deploy_preview, deploy_package
-from .godot_ops import godot_setup, check_godot_project, validate_project
+from .godot_ops import godot_setup, check_godot_project, validate_project, verify_project_opens
 from .gdscript_lint import validate_gdscript
 from .creative import image_generate, schedule_task, list_scheduled_tasks, cancel_scheduled_task, skill_auto_save
 from .comfy_cli import comfy_cli, comfy_node_scaffold, comfy_node_install, comfy_node_publish, comfy_launch, comfy_model_download
 from .memory_tools import save_memory, read_memory, save_daily_log, save_bug_fix
-from skills import get_skill_body
+from skills import get_skill_body, read_skill_step
 from skills import scan_skills as _scan_skills, get_market_skills as _get_market_skills, install_skill as _install_skill
 from memory.conversations import search_conversation_messages
 
@@ -204,11 +204,27 @@ def _git_snapshot(message="", path="", **kw):
 # ===== 实时预览缓存 =====
 _preview_file = None
 def _live_preview(path="", **kw):
-    """标记文件为实时预览目标，并通知前端打开"""
+    """标记文件为实时预览目标，并通知前端打开。支持 filepath 参数和 content 参数。"""
+    import tempfile
     global _preview_file
-    p = Path(path).expanduser().resolve()
+    
+    filepath = path or kw.get("filepath", "")
+    content = kw.get("content", "")
+    
+    if content:
+        # 将 HTML 内容写入临时文件再预览
+        import tempfile, os
+        fd, tmp = tempfile.mkstemp(suffix=".html", prefix="maona_preview_")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+        filepath = tmp
+    
+    if not filepath:
+        return "请提供 filepath 或 content 参数"
+    
+    p = Path(filepath).expanduser().resolve()
     if not p.exists():
-        return f"文件不存在: {path}"
+        return f"文件不存在: {filepath}"
     _preview_file = str(p)
     return json.dumps({"action": "preview", "path": str(p), "name": p.name})
 
@@ -261,13 +277,12 @@ async def _sub_task(prompt="", context="", tools="", **kw):
     if not prompt:
         return "sub_task: 未提供任务描述"
     try:
-        from providers.manager import ProviderManager
-        pm = ProviderManager()
-        providers = pm.list_available()
+        from providers.manager import list_available as pm_list, get_provider as pm_get
+        providers = pm_list()
         if not providers:
             return "sub_task: 无可用 Provider"
         name = providers[0]["name"]
-        provider = pm.get_provider(name)
+        provider = pm_get(name)
 
         msg = prompt
         if context:
@@ -653,6 +668,96 @@ def _project_index(path="", refresh=False, **kw):
     return summary
 
 
+def _detect_godot_env(workspace: str = "", **kw) -> str:
+    """在 Python 中直接探测 Godot 环境状态，无需 PowerShell。
+    解决 PowerShell 脚本复杂引用导致静默失败的问题。
+    """
+    if not workspace:
+        return "错误：请提供 workspace 参数（当前工作空间路径）"
+
+    ws = Path(workspace).expanduser().resolve()
+    result = {
+        "workspace": str(ws),
+        "has_active_game": False,
+        "has_project": False,
+        "has_editor": False,
+        "editor_listening": False,
+        "game_dir": None,
+        "active_game_name": None,
+        "godot_version": None,
+    }
+
+    # 1. active-game.json
+    ag_path = ws / "active-game.json"
+    if ag_path.exists():
+        try:
+            import json as _json
+            ag = _json.loads(ag_path.read_text(encoding="utf-8"))
+            result["has_active_game"] = True
+            result["game_dir"] = ag.get("gameDir")
+            result["active_game_name"] = ag.get("projectName") or ag.get("name")
+        except Exception:
+            pass
+
+    # 2. 检查项目是否存在
+    if result["game_dir"]:
+        game_dir = Path(result["game_dir"])
+        if game_dir.exists() and (game_dir / "project.godot").exists():
+            result["has_project"] = True
+    else:
+        # fallback: 扫描一级子目录找 project.godot
+        for child in ws.iterdir():
+            if child.is_dir() and (child / "project.godot").exists():
+                result["has_project"] = True
+                result["game_dir"] = str(child)
+                break
+
+    # 3. 检查 Godot 编辑器
+    editor_dir = ws / "godot-editor"
+    if editor_dir.exists():
+        exes = sorted(editor_dir.rglob("Godot_v*.exe"))
+        if exes:
+            result["has_editor"] = True
+            exe_name = exes[0].name
+            import re
+            m = re.search(r"Godot_v(\d+\.\d+)", exe_name)
+            if m:
+                result["godot_version"] = m.group(1)
+
+    # 4. 检查 9080 端口
+    try:
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(1)
+        s.connect(("127.0.0.1", 9080))
+        s.close()
+        result["editor_listening"] = True
+    except Exception:
+        pass
+
+    # 格式化输出
+    icons = {True: "✅", False: "❌"}
+    lines = [
+        f"## Godot 环境探测 ({ws.name})",
+        f"- active_game.json: {icons[result['has_active_game']]} (has_active_game={result['has_active_game']})",
+        f"- 项目 project.godot: {icons[result['has_project']]} (has_project={result['has_project']})",
+        f"- Godot 编辑器: {icons[result['has_editor']]} (has_editor={result['has_editor']})",
+        f"- MCP 9080 端口: {icons[result['editor_listening']]} (editor_listening={result['editor_listening']})",
+    ]
+    if result["game_dir"]:
+        lines.append(f"- 项目目录: {result['game_dir']}")
+    if result["godot_version"]:
+        lines.append(f"- Godot 版本: {result['godot_version']}")
+    if result["active_game_name"]:
+        lines.append(f"- 活跃项目: {result['active_game_name']}")
+
+    # 汇总意图判别建议
+    if not result["has_project"]:
+        lines.append(f"\n→ 意图判别：has_project=False → 场景 1 (make_game)")
+
+    return "\n".join(lines)
+
+
 # ===== 智能记忆工具处理器 =====
 def _remember_workflow_handler(keywords: str, steps: str) -> str:
     try:
@@ -732,6 +837,7 @@ TOOL_HANDLERS = {
     "read_docx": read_docx,
     "read_xlsx": read_xlsx,
     "read_pptx": read_pptx,
+    "read_skill_step": lambda **kw: read_skill_step(kw.get("skill_id", ""), kw.get("step_ref", 1)),
     "load_skill": lambda **kw: _async_load(kw.get("skill_id", "")),
     "switch_mode": lambda **kw: (_switch_mode_inner(kw.get("mode", "craft"), kw.get("reason", ""))),
     "task_create": _task_create,
@@ -740,6 +846,7 @@ TOOL_HANDLERS = {
     "restore_backup": _restore_backup,
     "git_snapshot": _git_snapshot,
     "project_index": _project_index,
+    "detect_godot_env": _detect_godot_env,
     "live_preview": _live_preview,
     "preview_html": _live_preview,   # 别名
     "html_preview": _live_preview,   # 别名
@@ -805,6 +912,7 @@ TOOL_HANDLERS = {
     # Godot 项目操作
     "godot_setup": godot_setup,
     "check_godot_project": check_godot_project,
+    "verify_project_opens": verify_project_opens,
     "validate_gdscript": validate_gdscript,
     # 创意工具
     "image_generate": image_generate,
@@ -855,7 +963,7 @@ async def execute_tool(name: str, arguments: dict) -> str:
             mtime = p.stat().st_mtime if p.exists() else 0
             cache_key = str(p)
             if cache_key in _file_cache and _file_cache[cache_key][0] == mtime:
-                return "(缓存) " + _file_cache[cache_key][1]
+                return _file_cache[cache_key][1]
             result = await handler(**arguments)
             if not result.startswith("错误"):
                 _file_cache[cache_key] = (mtime, result)

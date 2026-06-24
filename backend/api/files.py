@@ -51,7 +51,7 @@ async def read_file(path: str):
         raise HTTPException(status_code=404, detail="不是文件")
 
     try:
-        content = target.read_text(encoding="utf-8", errors="replace")
+        content = target.read_text(encoding="utf-8-sig", errors="replace")
         return {"path": str(target), "content": content, "size": len(content)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

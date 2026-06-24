@@ -18,6 +18,22 @@ function whichSync(cmd) {
   return null;
 }
 
+// ==================== 单实例锁 ====================
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  // 已有实例在运行，直接退出
+  app.quit();
+  return;
+}
+// 第二个实例启动时，激活已有窗口
+app.on("second-instance", (_event, _commandLine, _workingDirectory) => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+});
+
 // 禁止 GPU 缓存 + HTTP 缓存（开发模式即时生效）
 app.commandLine.appendSwitch("disable-gpu-cache");
 app.commandLine.appendSwitch("disable-software-rasterizer");
@@ -68,7 +84,8 @@ function startPythonBackend() {
   pythonProcess = spawn(pythonCmd, ["main.py", "--no-browser"], {
     cwd: backendDir,
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, MAONA_RESOURCES_DIR: resourcesDir },
+    windowsHide: true,
+    env: { ...process.env, MAONA_RESOURCES_DIR: resourcesDir, PYTHONUNBUFFERED: "1" },
   });
 
   pythonProcess.on('error', (err) => {
@@ -97,13 +114,13 @@ function startPythonBackend() {
         dialog.showErrorBox("启动失败", `后端连续 ${_maxRestart} 次启动失败。请检查 8765 端口是否被占用或 Python 环境是否正常。`);
         return;
       }
-      console.log(`[Electron] 后端异常退出，5秒后自动重启...(${_restartCount}/${_maxRestart})`);
+      console.log(`[Electron] 后端异常退出，1秒后自动重启...(${_restartCount}/${_maxRestart})`);
       setTimeout(() => {
         if (!_shuttingDown && mainWindow && !mainWindow.isDestroyed()) {
           startPythonBackend();
           mainWindow.webContents.reload();
         }
-      }, 5000);
+      }, 1000);
     }
   });
 }
@@ -141,7 +158,7 @@ async function ensureBackend() {
         );
       } catch { }
       // 等待端口释放（仅在有旧进程时才等）
-      await new Promise(r => setTimeout(r, 800));
+      await new Promise(r => setTimeout(r, 500));
     }
   }
 
@@ -156,9 +173,9 @@ async function ensureBackend() {
   console.log("[Electron] 启动 Python 后端...");
   startPythonBackend();
 
-  // 等待就绪（最多 15 秒）
-  for (let i = 0; i < 30; i++) {
-    await new Promise((r) => setTimeout(r, 500));
+  // 等待就绪（最多 10 秒）
+  for (let i = 0; i < 50; i++) {
+    await new Promise((r) => setTimeout(r, 200));
     if (await checkBackendAlive()) {
       _restartCount = 0;  // 重置计数
       console.log("[Electron] 后端已就绪");
@@ -220,12 +237,12 @@ function createWindow() {
           if (!mainWindow || mainWindow.isDestroyed()) { clearInterval(check); return; }
           attempts++;
           const alive = await checkBackendAlive();
-          if (alive || attempts > 30) {
+          if (alive || attempts > 50) {
             clearInterval(check);
             if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.reload();
           }
-        }, 500);
-      }, 1000);
+        }, 200);
+      }, 500);
     } else if (input.key === "F5" || (input.control && input.key.toLowerCase() === "r")) {
       // Ctrl+R 或 F5：仅刷新前端页面
       e.preventDefault();
@@ -299,7 +316,9 @@ function createWindow() {
 // ==================== 系统托盘 ====================
 
 function createTray() {
-  const iconPath = path.join(__dirname, "renderer", "assets", "icon.png");
+  const iconPath = app.isPackaged
+    ? path.join(process.resourcesPath, "renderer", "assets", "icon.png")
+    : path.join(__dirname, "renderer", "assets", "icon.png");
   const icon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
   tray = new Tray(icon);
 
@@ -395,6 +414,7 @@ app.whenReady().then(async () => {
     }
     // 验证文件路径安全
     const path = require("path");
+    const url = require("url");
     const resolved = path.resolve(filePath);
     const blocked = [/windows/i, /system32/i, /etc/i];
     if (blocked.some(r => r.test(resolved))) return false;
@@ -404,9 +424,9 @@ app.whenReady().then(async () => {
       title: "预览",
       parent: mainWindow,
       modal: false,
-      webPreferences: { sandbox: false }  // 预览本地 HTML 需要 filesystem 访问
+      webPreferences: { sandbox: false, webSecurity: false }
     });
-    _previewWin.loadFile(filePath);
+    _previewWin.loadURL(url.pathToFileURL(resolved).href);
     _previewWin.on("closed", () => { _previewWin = null; });
     return true;
   });

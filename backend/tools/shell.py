@@ -3,6 +3,7 @@ import asyncio
 import re
 import ipaddress
 import os
+import sys
 from pathlib import Path
 from urllib.parse import urlparse
 import httpx
@@ -88,13 +89,61 @@ async def run_command(command: str, __confirmed: bool = False, timeout: int = No
     if action == "warn":
         prefix = f"⚠️ 安全提示：此命令可能危险（匹配: {pattern}），已执行但请注意\n\n"
 
-    # PowerShell 输出：subprocess 已通过 PIPE 捕获 stdout+stderr，无需额外重定向。
+    # === 幂等性预检查：先确认操作的必要性 ===
+    idem_hint = _check_idempotent(command)
+    if idem_hint:
+        # 如果是幂等跳过后的消息，不执行
+        if idem_hint.startswith("⏭️"):
+            return prefix + idem_hint
+        # 非幂等提示（如命令修正），继续执行
+        prefix += idem_hint
+
+    # 自动修正：检测 PowerShell 语法（变量、cmdlet、管道等）并包装
+    _ps_patterns = [
+        r'\$\w+\s*=',            # $var = ...（变量赋值）
+        r'\$\{env:',             # ${env:VAR}
+        r'\$env:',               # $env:VAR
+        r'\bGet-\w+',           # Get-ChildItem 等
+        r'\bNew-\w+',           # New-Item 等
+        r'\bSet-\w+',           # Set-Content 等
+        r'\bRemove-\w+',        # Remove-Item 等
+        r'\bJoin-Path\b',       # Join-Path
+        r'\bCopy-Item\b',       # Copy-Item
+        r'\bTest-Path\b',       # Test-Path
+        r'\bOut-Null\b',        # Out-Null
+        r'\bWrite-Host\b',      # Write-Host
+        r'\bForEach-Object\b',  # ForEach-Object
+        r'\bSelect-Object\b',   # Select-Object
+        r'\bWhere-Object\b',    # Where-Object
+        r'\bStart-Process\b',   # Start-Process
+    ]
+    _is_ps = any(re.search(p, command, re.IGNORECASE) for p in _ps_patterns)
+    if _is_ps and 'powershell' not in command.lower() and 'pwsh' not in command.lower():
+        # 转义内部双引号避免 cmd.exe 解析冲突
+        safe = command.replace('"', "'")
+        command = f'powershell -Command "{safe}"'
+        prefix += "[自动包装为 PowerShell 命令]\n"
+
+    # 显式传递环境变量（确保 MAONA_PLUGIN_ROOT 等被继承）
+    _subproc_env = os.environ.copy()
     try:
-        proc = await asyncio.create_subprocess_shell(
-            command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
+        # GUI 程序（Start-Process）需用 DETACHED_PROCESS 让窗口正常显示
+        is_gui = bool(re.search(r'Start-Process', command, re.IGNORECASE))
+        if is_gui:
+            proc = await asyncio.create_subprocess_shell(
+                command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                env=_subproc_env,
+                creationflags=0x00000008 if sys.platform == "win32" else 0,  # DETACHED_PROCESS
+            )
+        else:
+            proc = await asyncio.create_subprocess_shell(
+                command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                env=_subproc_env,
+            )
         timeout_sec = timeout or 120  # 默认 120s 超时，避免 Godot 启动等长时间命令卡死
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout_sec)
         output = stdout.decode("utf-8", errors="replace")
@@ -261,7 +310,7 @@ async def web_search_api(query: str, engine: str = "duckduckgo") -> str:
     return f"搜索引擎 '{engine}' 需要 API Key 配置。请在设置中配置搜索引擎 API Key，或使用默认的 duckduckgo 引擎。"
 
 
-async def run_python(code: str, timeout: int = 60, __confirmed: bool = False, **kw) -> str:
+async def run_python(code: str, timeout: int = 30, __confirmed: bool = False, **kw) -> str:
     """执行 Python 代码片段并返回结果（线程隔离，带超时）
 
     危险操作不阻止，仅在界面提醒用户确认。
@@ -306,20 +355,18 @@ async def run_python(code: str, timeout: int = 60, __confirmed: bool = False, **
         finally:
             sys.stdout = old_stdout
 
-    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    try:
-        loop = asyncio.get_event_loop()
-        future = loop.run_in_executor(pool, _exec)
-        status, output = await asyncio.wait_for(future, timeout=timeout)
-        if status == "err":
-            return f"Python 错误: {output}"
-        return f"Python 输出:\n{output or '(无输出)'}"
-    except asyncio.TimeoutError:
-        return f"Python 执行超时（>{timeout}秒），代码可能陷入死循环或阻塞操作"
-    except Exception as e:
-        return f"Python 执行失败: {e}"
-    finally:
-        pool.shutdown(wait=False)  # 不等线程，直接清理
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        try:
+            loop = asyncio.get_event_loop()
+            future = loop.run_in_executor(pool, _exec)
+            status, output = await asyncio.wait_for(future, timeout=timeout)
+            if status == "err":
+                return f"Python 错误: {output}"
+            return f"Python 输出:\n{output or '(无输出)'}"
+        except asyncio.TimeoutError:
+            return f"Python 执行超时（>{timeout}秒），代码可能陷入死循环或阻塞操作"
+        except Exception as e:
+            return f"Python 执行失败: {e}"
 
 
 async def read_csv(path: str, n: int = 20) -> str:
@@ -609,4 +656,58 @@ async def cost_summary() -> str:
              f"总计 Token: {total_prompt + total_comp:,}",
              f"估算费用: ¥{total_cost:.4f}"]
     return "\n".join(lines)
+
+
+# === 幂等性预检查 ===
+
+def _check_idempotent(command: str) -> str | None:
+    """在执行命令前检查是否需要（幂等性），不需要则返回提示文本"""
+    cmd_lower = command.lower()
+
+    # 1. Start-Process / 启动 GUI 程序 → 检查是否已在运行
+    start_match = re.search(r'start-process.*-filepath\s+[\'"]?([^\'"\s;]+\.exe)', cmd_lower)
+    if start_match:
+        exe_name = Path(start_match.group(1)).name
+        import subprocess
+        try:
+            result = subprocess.run(
+                f'tasklist /FI "IMAGENAME eq {exe_name}" 2>nul',
+                shell=True, capture_output=True, text=True, timeout=5
+            )
+            if exe_name.lower() in result.stdout.lower():
+                return f"⏭️ 跳过启动 {exe_name}：进程已在运行中。无需重复启动。"
+        except Exception:
+            pass
+        return None  # 进程不存在或无权限查询，允许执行
+
+    # 2. mkdir / New-Item -ItemType Directory → 检查目录是否存在
+    mkdir_match = re.search(r'(?:mkdir|New-Item.*-ItemType\s+Directory)\s+[\'"]?([^\'"\s;]+)', command, re.IGNORECASE)
+    if mkdir_match:
+        dir_path = Path(mkdir_match.group(1).strip('\'"'))
+        if dir_path.exists() and dir_path.is_dir():
+            return f"⏭️ 跳过创建目录 {dir_path}：目录已存在。无需重复创建。"
+
+    # 3. curl / wget / Invoke-WebRequest 下载 → 检查目标文件是否存在
+    dl_match = re.search(r'(?:curl|wget|Invoke-WebRequest|iwr).*?(?:-o|--output|-OutFile)\s+[\'"]?([^\'"\s;]+)', command, re.IGNORECASE)
+    if dl_match:
+        file_path = Path(dl_match.group(1).strip('\'"'))
+        if file_path.exists() and file_path.stat().st_size > 0:
+            return f"⏭️ 跳过下载 {file_path}：文件已存在（{file_path.stat().st_size} 字节）。无需重复下载。若需重新下载，请先删除此文件。"
+
+    # 4. npm install / pip install → 检查 node_modules/ 或 site-packages
+    if re.search(r'npm\s+install\b', cmd_lower):
+        cwd = re.search(r'cd\s+([^\s&;]+)', cmd_lower)
+        if cwd:
+            node_mod = Path(cwd.group(1)) / "node_modules"
+            if node_mod.exists():
+                return f"⏭️ 跳过 npm install：{node_mod} 已存在。如需重新安装，请先删除此目录。"
+
+    # 5. git clone → 检查目标目录是否已是 git 仓库
+    clone_match = re.search(r'git\s+clone\s+\S+\s+[\'"]?([^\'"\s;]+)', cmd_lower)
+    if clone_match:
+        target = Path(clone_match.group(1).strip('\'"'))
+        if target.exists() and (target / ".git").exists():
+            return f"⏭️ 跳过 git clone：{target} 已是 Git 仓库。使用 git pull 更新。"
+
+    return None
 

@@ -23,6 +23,7 @@ from memory.conversations import (
 from memory.store import append_daily, read_longterm, write_longterm
 from providers import manager as pm, store as ps
 from providers.model_settings import get_settings as get_model_settings
+from usage_tracker import record_usage
 
 
 def _text_content(m):
@@ -195,9 +196,19 @@ def estimate_tokens(messages: list[dict]) -> int:
     return total
 
 
-TOKEN_BUDGET = int(os.getenv("AGENT_MAONA_TOKEN_BUDGET", "256000"))  # 256K 默认预算，环境变量可覆盖
-KEEP_RECENT_ROUNDS = 3  # 保留最近 N 轮完整对话
-COMPRESS_THRESHOLD = float(os.getenv("AGENT_MAONA_COMPRESS_THRESHOLD", "0.6"))  # 压缩触发阈值
+TOKEN_BUDGET = int(os.getenv("AGENT_MAONA_TOKEN_BUDGET", "800000"))  # 800K 默认，DeepSeek 1M 留余量
+COMPRESS_THRESHOLD = float(os.getenv("AGENT_MAONA_COMPRESS_THRESHOLD", "0.0"))  # 0 = 自动按模型选择
+
+def get_compress_threshold(model_budget: int) -> float:
+    """根据模型上下文大小动态选择压缩阈值。环境变量覆盖优先。"""
+    if COMPRESS_THRESHOLD > 0:
+        return COMPRESS_THRESHOLD  # 用户强制覆盖
+    if model_budget >= 800000:
+        return 0.80  # 大上下文（DeepSeek 800K+）→ 80%触发，充分利用窗口
+    elif model_budget >= 200000:
+        return 0.65
+    else:
+        return 0.50  # 小上下文（GLM 等 128K 以内）→ 保守，留空间给输出
 
 # 模型上下文大小映射（真实上下文窗口 + 内部预算留 20% 安全余量）
 _MODEL_CONTEXT_LIMITS = {
@@ -298,19 +309,19 @@ async def summarize_conversation(provider, messages: list[dict], project: str) -
 
 
 async def stream_chat(request: ChatRequest):
-    # 消息大小限制：单条最多 50KB
-    for m in request.messages:
-        if len(_text_content(m) or "") > 50000:
-            yield await send("error", content="消息过长，单条消息不能超过 50000 字符")
-            yield await send("done")
-            return
-
     try:
         provider_name, model = pick_provider(request)
         # 根据模型动态设置 token 预算
         model_budget = get_model_budget(provider_name, model)
     except ValueError as e:
         yield await send("error", content=str(e))
+        yield await send("done")
+        return
+
+    # 新消息超过模型上下文窗口 → 直接拒绝，不浪费 API 调用
+    new_tokens = estimate_tokens(request.messages)
+    if new_tokens > model_budget:
+        yield await send("error", content=f"当前消息过大（约 {new_tokens:,} tokens），超过模型上下文窗口（{model_budget:,} tokens）。请拆分消息或缩短内容。")
         yield await send("done")
         return
 
@@ -367,9 +378,10 @@ async def stream_chat(request: ChatRequest):
                 print(f"[Maona] MCP 连接异常: {e}")
         if not _mcp_warmed:
             if not godot_running:
-                _mcp_warning = ("\n\n⚠️ Godot 编辑器未在 9080 运行，MCP 桥接无法连接。"
-                                "请确保 Godot 编辑器已打开并启用 GodotMCP 插件，然后说「继续」即可自动连接。"
-                                "在此之前可用 write_file 创建 GDScript 脚本，但场景文件（.tscn）请等 MCP 就绪后再创建。")
+                _mcp_warning = ("\n\n⚠️ Godot MCP 未连接（9080 端口无监听）。\n"
+                                "建议先告诉用户：「请在 Godot 中打开项目，项目设置→插件→启用 GodotMCP」。\n"
+                                "如果用户无法启用 MCP（插件有问题、不想装等），可以用 write_file 写 .tscn 作为降级方案。\n"
+                                "不要跳过这个提示直接开始——先问用户是否方便启用 MCP。")
             else:
                 _mcp_warning = ("\n\n⚠️ Maona 的 Node.js MCP 桥接服务启动失败，build_godot_scene 工具不在你的工具列表中。"
                                 "如果用户问 MCP 状态，告知：虽然 Godot 编辑器在 9080 端口运行，但 Maona 的 Node.js MCP 桥接未成功启动。")
@@ -396,25 +408,15 @@ async def stream_chat(request: ChatRequest):
     yield await send("meta", provider=provider_name, model=model, conversation_id=conv_id, token_budget=model_budget,
                      context_window=_model_context_window)
 
-    # 对话续接：前轮摘要注入到用户消息，避免 Agent 重新分析整段历史
-    if request.conversation_id and request.messages:
+    # Claude Code 风格：使用完整对话历史，不注入摘要
+    _all_history = []
+    if request.conversation_id:
         try:
             prev = await get_conversation(request.conversation_id)
-            prev_msgs = prev.get("messages", []) if prev else []
-            if len(prev_msgs) >= 2:
-                last_assistant = next((m for m in reversed(prev_msgs) if m.get("role") == "assistant" and m.get("content")), None)
-                if last_assistant:
-                    # 取回复的前 200 字符作为摘要（通常包含 ✅ 完成标记和关键步骤）
-                    summary = last_assistant["content"].strip()[:200].replace("\n", " ")
-                    # 注入到最新用户消息前
-                    for i, m in enumerate(request.messages):
-                        if m.role == "user" and i == len([x for x in request.messages if x.role == "user"]) - 1:
-                            # 只对简短续接类消息注入，复杂新指令不干扰
-                            if len(m.content) < 100 and not m.content.startswith("["):
-                                m.content = f"[上轮结果: {summary}] {m.content}"
-                            break
-        except Exception as e:
-            print(f"[Maona] 对话摘要注入失败: {type(e).__name__}: {e}")
+            if prev and prev.get("messages"):
+                _all_history = prev["messages"]
+        except Exception:
+            pass
     tailored_prompt = SYSTEM_PROMPT  # 默认值，防未定义
     if conv_id in _conv_prompt_cache:
         tailored_prompt = _conv_prompt_cache[conv_id]
@@ -424,6 +426,14 @@ async def stream_chat(request: ChatRequest):
             system_path = Path(workspace) / ".maona" / "system.md"
             if system_path.exists():
                 custom_system = system_path.read_text(encoding="utf-8").strip()
+            # Claude Code 风格：MAONA.md 项目级约定文件
+            maona_md = Path(workspace) / "MAONA.md"
+            if maona_md.exists():
+                conventions = maona_md.read_text(encoding="utf-8").strip()
+                if custom_system:
+                    custom_system += f"\n\n## 项目约定 (MAONA.md)\n{conventions}"
+                else:
+                    custom_system = f"## 项目约定\n{conventions}"
             # 加载工作空间规则
             rules_path = Path(workspace) / ".maona" / "rules.md"
             if rules_path.exists():
@@ -440,13 +450,6 @@ async def stream_chat(request: ChatRequest):
     # 注入工作空间路径
     if workspace:
         tailored_prompt += f"\n工作空间: {workspace}"
-
-    # 注入上轮对话摘要（跨对话记忆桥接，始终生效）
-    from memory.conversations import get_last_conversation_summary
-    last_summary = await get_last_conversation_summary(project)
-    if last_summary:
-        tailored_prompt += f"\n\n{last_summary}"
-        tailored_prompt += "\n以上是上轮对话的内容摘要，请结合当前工作日志和长期记忆理解上下文。"
 
     # 注入用户画像（Cloud Memory 本地等效 — 跨对话自动积累）
     from memory.profile import get_profile_text
@@ -581,33 +584,44 @@ async def stream_chat(request: ChatRequest):
     if known_bugs_ctx:
         tailored_prompt += known_bugs_ctx
 
-    # Claude Code 风格：按 token 预算驱动的上下文压缩
-    recent = request.messages[-60:] if len(request.messages) > 60 else request.messages
-    total_tokens = estimate_tokens(recent)
+    # Claude Code 风格：完整对话历史，无条数硬上限，按 token 预算动态裁剪
+    all_raw = list(_all_history)
+    seen_user_contents = {m.get("content", "") for m in all_raw if isinstance(m, dict) and m.get("role") == "user"}
+    for m in request.messages:
+        content = m.content or ""
+        if content and content not in seen_user_contents:
+            all_raw.append({"role": "user", "content": content})
+            seen_user_contents.add(content)
+    from types import SimpleNamespace as _SimpleNS
+    all_msgs = [_SimpleNS(**(dict(m) if isinstance(m, dict) else {"role": m.role, "content": m.content})) for m in all_raw]
+    total_tokens = estimate_tokens(all_msgs)
 
     if total_tokens > model_budget:
-        # 找到最近 KEEP_RECENT_ROUNDS 个 user 消息的位置
-        user_indices = [i for i, m in enumerate(recent) if m.role == "user"]
-        if len(user_indices) > KEEP_RECENT_ROUNDS:
-            split_idx = user_indices[-(KEEP_RECENT_ROUNDS)]
-            old_msgs, new_msgs = recent[:split_idx], recent[split_idx:]
+        # 从最新消息往前数，保留能塞进 90% 预算的消息
+        keep, keep_tokens = [], 0
+        budget_target = int(model_budget * 0.90)
+        for m in reversed(all_msgs):
+            t = estimate_tokens([m])
+            if keep_tokens + t > budget_target and keep:
+                break
+            keep.insert(0, m)
+            keep_tokens += t
+        old_msgs = [m for m in all_msgs if m not in keep]
+        if old_msgs:
             try:
-                # 滚动摘要：如果已有旧摘要，一起传进去再次压缩
-                summary_msgs = list(old_msgs)
+                summary_msgs = [{"role": m.role, "content": m.content} for m in old_msgs]
                 if "## 对话摘要" in tailored_prompt:
-                    summary_msgs.insert(0, {
-                        "role": "user",
-                        "content": "之前的对话摘要：\n" + tailored_prompt.split("## 对话摘要\n", 1)[1].split("\n\n", 1)[0]
-                    })
+                    summary_msgs.insert(0, {"role": "user", "content": "之前的对话摘要：\n" + tailored_prompt.split("## 对话摘要\n", 1)[1].split("\n\n", 1)[0]})
                 compressed = await summarize_conversation(provider, summary_msgs, project)
                 if compressed:
-                    # 清理旧摘要，写入新摘要
                     if "## 对话摘要" in tailored_prompt:
                         tailored_prompt = tailored_prompt.split("## 对话摘要\n")[0].strip()
                     tailored_prompt += f"\n\n## 对话摘要\n{compressed}"
-                    recent = new_msgs
             except Exception:
                 pass
+        recent = keep
+    else:
+        recent = all_msgs
 
     messages = [{"role": "system", "content": tailored_prompt}]
     for m in recent:
@@ -664,6 +678,14 @@ async def stream_chat(request: ChatRequest):
         else:
             messages.append({"role": m.role, "content": content})
 
+    # Claude Code 风格：注入对话级 todo 任务列表
+    if workspace and request.conversation_id:
+        todo_path = Path(workspace) / ".maona" / f"todo_{request.conversation_id}.md"
+        if todo_path.exists():
+            todo_content = todo_path.read_text(encoding="utf-8").strip()
+            if todo_content:
+                messages.append({"role": "user", "content": f"## 当前任务进度 (todo)\n{todo_content}\n请根据以上进度继续工作。用 task_update 完成时顺便更新 todo 文件。"})
+
     final_text = ""
     has_error = False
     final_reasoning = None  # 最后一轮推理（用于纯推理回复）
@@ -673,6 +695,27 @@ async def stream_chat(request: ChatRequest):
     MAX_RETRIES = 2
     MAX_AUTO_CONTINUES = 8  # 持久循环：最多自动续接 8 轮（↑5）
     auto_continue_round = 0
+    _completion_exits = 0  # 断路器：连续完成文本次数
+    _runtime_diag = {"total_rounds": 0, "total_tool_calls": 0, "phase_events": [], "compressions": [], "code_analysis": [], "injections": [], "errors": []}  # 诊断数据
+    # === 自适应探索预算 ===
+    _project_file_count = 0
+    _exploration_budget = 5
+    _explored_files = set()
+    _consecutive_no_action = 0
+    ACTION_TOOLS = {"write_file", "edit_file", "delete_file", "rename_file", "task_create", "task_update", "skill_create", "skill_update", "skill_delete", "kb_create", "kb_add_url", "kb_add", "save_memory", "save_daily_log"}
+    def _update_exploration_budget(fc):
+        nonlocal _exploration_budget
+        if fc <= 0: _exploration_budget = 5
+        elif fc <= 15: _exploration_budget = 3
+        elif fc <= 50: _exploration_budget = 4
+        elif fc <= 200: _exploration_budget = 6
+        elif fc <= 500: _exploration_budget = 8
+        else: _exploration_budget = 10
+    def _parse_file_count(text):
+        import re as _re; m = _re.search(r'文件数[：:]\s*(\d+)', text); return int(m.group(1)) if m else 0
+    _pending_tasks = 0  # 简单任务计数，不用于 Phase 决策
+    _completed_tasks = 0
+    _last_checkpoint_round = 0
     try:
         while auto_continue_round < MAX_AUTO_CONTINUES:
             for round_i in range(MAX_TOOL_ROUNDS):
@@ -688,13 +731,38 @@ async def stream_chat(request: ChatRequest):
                     has_error = True
                     yield await send("error", content=resp["error"])
                     break
-    
+
+                # 记录用量
+                try:
+                    usage = resp.get("usage", {})
+                    tokens_in = usage.get("prompt_tokens") or estimate_tokens(messages)
+                    tokens_out = usage.get("completion_tokens") or (estimate_tokens([{"content": resp.get("content", "") or (resp.get("tool_calls") and json.dumps(resp["tool_calls"]))}]) if resp.get("content") or resp.get("tool_calls") else 0)
+                    if tokens_in or tokens_out:
+                        last_user_text = ""
+                        for m in reversed(request.messages):
+                            if m.role == "user":
+                                last_user_text = _text_content(m)[:200]
+                                break
+                        record_usage(
+                            model=model,
+                            provider=provider_name,
+                            conversation_id=conv_id,
+                            tokens_input=tokens_in,
+                            tokens_output=tokens_out,
+                            prompt_preview=last_user_text,
+                        )
+                        print(f"[UsageTracker] 已记录 {model}: {tokens_in}+{tokens_out} tokens")
+                except Exception as e:
+                    print(f"[UsageTracker] 记录异常: {e}")
+
+                _runtime_diag["total_rounds"] += 1
                 tool_calls = resp.get("tool_calls")
                 reasoning = resp.get("reasoning")
                 if reasoning:
                     final_reasoning = reasoning
                     yield await send("reasoning", content=reasoning)
                 if tool_calls:
+                    _runtime_diag["total_tool_calls"] += len(tool_calls)
                     yield await send("step", round=round_i + 1, total=MAX_TOOL_ROUNDS)
 
                     # 发送模型在当前轮的说明文字
@@ -817,6 +885,110 @@ async def stream_chat(request: ChatRequest):
                         tc_id = tc.get("id") or f"call_{name}_{round_i}"
                         tc["id"] = tc_id
                         messages.append({"role": "tool", "tool_call_id": tc_id, "content": str(result_for_llm)})
+                    # 自适应探索追踪
+                    for idx, (_, name, _, args) in enumerate(tc_infos):
+                        if name == "project_index" and idx < len(round_results):
+                            fc = _parse_file_count(str(round_results[idx]))
+                            if fc > 0 and fc != _project_file_count: _project_file_count = fc; _update_exploration_budget(fc)
+                        if name in ("read_file","list_files","search_content") and idx < len(round_results):
+                            fp = ""
+                            if name == "read_file": fp = args.get("path") or args.get("file_path",""); 
+                            elif name == "list_files": fp = args.get("path","")
+                            if fp: _explored_files.add(fp)
+                    round_has_action = any(n in ACTION_TOOLS for _, n, _, _ in tc_infos)
+                    _consecutive_no_action = 0 if round_has_action else _consecutive_no_action + 1
+                    # Phase 追踪
+
+                    # 任务计数（用于探索引导，不做 Phase 决策）
+                    for idx, (_, name, _, args) in enumerate(tc_infos):
+                        if name == "task_create": _pending_tasks += 1
+                        if name == "task_update" and idx < len(round_results):
+                            r = str(round_results[idx]).lower()
+                            if any(w in r for w in ("completed","完成","已完成")): _completed_tasks += 1; _pending_tasks = max(0, _pending_tasks - 1)
+                    # Claude Code 风格：持久化 todo 文件
+                    if workspace:
+                        todo_path = Path(workspace) / ".maona" / f"todo_{conv_id}.md"
+                        todo_lines = []
+                        for idx, (_, name, _, args) in enumerate(tc_infos):
+                            if name == "task_create":
+                                subj = args.get("subject") or args.get("description", "任务")[:80]
+                                todo_lines.append(f"- [ ] {subj}")
+                            elif name == "task_update" and idx < len(round_results):
+                                r = str(round_results[idx]).lower()
+                                if any(w in r for w in ("completed","完成","已完成")):
+                                    subj = args.get("subject") or args.get("description", "任务")[:80]
+                                    todo_lines.append(f"- [x] {subj}")
+                        if todo_lines:
+                            try:
+                                todo_path.parent.mkdir(parents=True, exist_ok=True)
+                                existing = todo_path.read_text(encoding="utf-8") if todo_path.exists() else ""
+                                existing_lines = existing.strip().split("\n") if existing.strip() else []
+                                # 合并：更新已有条目或追加
+                                new_todos = {}
+                                for line in existing_lines + todo_lines:
+                                    if line.startswith("- ["):
+                                        is_done = "[x]" in line[:6]
+                                        text = line[6:].strip() if len(line) > 6 else line
+                                        new_todos[text] = is_done
+                                final_lines = [f"- [{'x' if done else ' '}] {text}" for text, done in new_todos.items()]
+                                todo_path.write_text("\n".join(final_lines), encoding="utf-8")
+                            except Exception: pass
+                    # 验证结果注入：validate_gdscript/check_godot_project 有错误时，把报错原文喂给 Agent
+                    for idx, (_, name, _, args) in enumerate(tc_infos):
+                        if name in ("validate_gdscript", "check_godot_project") and idx < len(round_results):
+                            result = str(round_results[idx])
+                            if "🔴" in result or "ERROR" in result.upper() or "错误" in result:
+                                messages.append({"role": "user", "content": f"[验证结果] {name} 发现错误，请修复后重新验证：\n{result[:2000]}"})
+                    # 子 Agent 上下文隔离
+                    for idx2, (tc, name, _args_str, _args) in enumerate(tc_infos):
+                        if name == "sub_task":
+                            raw = str(round_results[idx2] if idx2 < len(round_results) else "")
+                            if len(raw) > 3000:
+                                import re as _re2
+                                paths = _re2.findall(r'(?:创建|修改|写入|读取)[：:]\\s*([^\\n]+)', raw)
+                                errors = _re2.findall(r'(?:错误|ERROR|失败|FAILED)[：:\\s]*([^\\n]{10,200})', raw)
+                                sp = [f"[子 Agent 结果已压缩 · 原文 {len(raw)} 字符]"]
+                                if paths: sp.append(f"涉及文件: {', '.join(paths[:8])}")
+                                if errors: sp.append(f"关键问题: {'; '.join(errors[:3])}")
+                                result_for_llm = raw[:500] + "\\n..." + "\\n".join(sp) + "\\n..." + raw[-200:]
+                                tc_id2 = tc.get("id") or f"call_{name}_{round_i}"; tc["id"] = tc_id2
+                                messages[-1]["content"] = result_for_llm if messages and messages[-1].get("role") == "tool" else str(result_for_llm)
+                    # Code 分析：写前必读
+                    blind_edits = []
+                    for idx, (_, name, _args_str, args) in enumerate(tc_infos):
+                        if name == "edit_file":
+                            fp = args.get("file_path", args.get("path", ""))
+                            fpn = fp.replace("\\", "/").lower(); en = {p.replace("\\", "/").lower() for p in _explored_files if p}
+                            if fpn and fpn not in en: blind_edits.append(fp)
+                    if blind_edits:
+                        bf = "\\n".join(f"  - {f}" for f in blind_edits[:5])
+                        messages.append({"role": "user", "content": f"[Code 分析] edit_file 目标不在最近读取列表中：\\n{bf}\\n建议先用 read_file 了解内容。"})
+                        _runtime_diag.setdefault("code_analysis", []).append({"round": round_i+1, "type": "blind_edit", "files": blind_edits[:5]})
+                    # Code 分析：依赖检查
+                    wfiles = [args.get("file_path", args.get("path","")) for _, name, _, args in tc_infos if name == "write_file" and args.get("file_path", args.get("path",""))]
+                    if wfiles and len(wfiles) <= 3:
+                        refs = set()
+                        for m in messages[-20:]:
+                            c = str(m.get("content",""))[:5000]
+                            for wf in wfiles:
+                                wn = wf.replace("\\","/").split("/")[-1].replace(".gd","").replace(".py","")
+                                if wn and len(wn) > 2 and wn in c: refs.add(wf)
+                        if refs:
+                            rl = "\\n".join(f"  - {f}" for f in refs)
+                            messages.append({"role": "user", "content": f"[Code 分析] 写入文件被引用，建议验证依赖：\\n{rl}"})
+                            _runtime_diag.setdefault("code_analysis", []).append({"round": round_i+1, "type": "dependency_check", "written": wfiles, "referenced_in": list(refs)})
+
+                    # 自适应探索预算注入
+                    _budget = _exploration_budget
+                    if _consecutive_no_action >= int(_exploration_budget * 0.8):
+                        pt = f"，{_pending_tasks} 个任务待执行" if _pending_tasks > 0 else ""
+                        messages.append({"role": "user", "content": f"已 {_consecutive_no_action} 轮无产出{pt}，信息应该够了。"})
+                    # 渐进式规则注入
+                    if round_i in (5, 10, 15, 25, 40, 60) and round_i > _last_checkpoint_round:
+                        _last_checkpoint_round = round_i
+                        pi = f"待完成: {_pending_tasks}。" if _pending_tasks > 0 else (f"已完成: {_completed_tasks}。" if _completed_tasks > 0 else "")
+                        messages.append({"role": "user", "content": f"[进度检查 · 第 {round_i} 轮] {pi}① 信任工具结果 ② validate_gdscript ③ MCP降级 ④ 够了就动手。"})
+                        _runtime_diag.setdefault("injections", []).append({"round": round_i+1, "type": "checkpoint_reminder"})
     
                     # 反思纠错：任一工具失败时，自动提示重试（含具体错误信息）
                     failures = [(tc_infos[i][0].get("function", {}).get("name", "?"), round_results[i])
@@ -841,42 +1013,57 @@ async def stream_chat(request: ChatRequest):
                         yield await send("error", content=f"已达到对话 Token 预算上限 ({budget_cap:,})，请简化任务或开启新对话。")
                         break
     
-                    # 工具循环内上下文检查：超预算时智能压缩历史
+                    # Phase 模型已移除，Agent 通过对话历史自主判断当前阶段    
+                    # === 4级压缩流水线 ===
                     if round_i >= 3 and round_i % 4 == 0:
                         est = estimate_tokens(messages)
-                        # 加上 system prompt 的 token 估算（防止大 prompt 被忽略）
                         sys_prompt_len = len(str(messages[0].get("content", ""))) if messages else 0
-                        est += sys_prompt_len // 2  # 中文 ~1 token/字
-                        if est > model_budget * COMPRESS_THRESHOLD:
+                        est += sys_prompt_len // 2
+                        if est > model_budget * get_compress_threshold(model_budget):
+                            # Tier 1: 裁剪大工具输出
+                            for m in messages[1:]:
+                                if m.get("role") == "tool":
+                                    c = str(m.get("content", ""))
+                                    if len(c) > 4000:
+                                        m["content"] = c[:2000] + f"\\n...[已截断 {len(c)-2500} 字符]...\\n" + c[-500:]
+                            est = estimate_tokens(messages) + sys_prompt_len // 2
+                            if est <= model_budget * get_compress_threshold(model_budget): print(f"[Maona] Tier1 裁剪后上下文恢复"); continue
+                            # Tier 2-4: Claude Code 风格 — 按 token 保留能塞进预算的消息
                             system_msg = messages[0]
-                            # 保留最近 12 条消息（~6 轮）和所有 tool 结果
-                            keep_count = max(12, len(messages) // 3)
-                            recent_msgs = messages[-keep_count:]
-                            old_msgs = messages[1:-keep_count]
-                            # 从旧消息中提取 tool 结果保留
+                            keep, keep_tk = [], 0
+                            budget_target_2 = int(model_budget * get_compress_threshold(model_budget) * 0.85)
+                            for m in reversed(messages[1:]):
+                                t = estimate_tokens([m])
+                                if keep_tk + t > budget_target_2 and keep:
+                                    break
+                                keep.insert(0, m)
+                                keep_tk += t
+                            recent_msgs = keep
+                            old_msgs = [m for m in messages[1:] if m not in recent_msgs]
                             tool_results_to_keep = []
                             for m in old_msgs:
                                 if m.get("role") == "tool" and m.get("content") and len(str(m.get("content",""))) < 8000:
                                     tool_results_to_keep.append(m)
                             summary = await summarize_conversation(provider, old_msgs, project)
                             if summary:
-                                # 清理旧摘要，写入新摘要（避免 system prompt 膨胀）
-                                sys_content = system_msg.get("content") or ""
-                                if "## 对话摘要" in sys_content:
-                                    sys_content = sys_content.split("## 对话摘要\n")[0].strip()
-                                system_msg["content"] = sys_content + "\n\n## 对话摘要\n" + summary
+                                recovery = (f"## 恢复上下文\\n"
+                                           f"- {_project_file_count}文件 | {len(all_tool_calls)}工具调用")
+                                sc = system_msg.get("content") or ""
+                                if "## 对话摘要" in sc: sc = sc.split("## 对话摘要\\n")[0].strip()
+                                system_msg["content"] = sc + "\\n\\n## 对话摘要\\n" + summary + "\\n\\n" + recovery
                                 messages = [system_msg] + tool_results_to_keep + recent_msgs
+                                _runtime_diag.setdefault("compressions", []).append({"round": round_i+1, "tier": 4, "before_tokens": est, "after_tokens": estimate_tokens(messages)})
                             else:
-                                # summarizer 失败 → 简单截断旧消息
                                 messages = [system_msg] + tool_results_to_keep + recent_msgs
-                                print(f"[Maona] 摘要生成失败，已截断 {len(old_msgs)} 条旧消息")
-                    # 每轮后保存检查点
-                    if workspace and all_tool_calls:
+                    # 每轮后保存检查点（工作空间 + 任务模式）
+                    if all_tool_calls:
                         try:
-                            ckpt_dir = Path(workspace) / ".maona"
+                            if workspace: ckpt_dir = Path(workspace) / ".maona"
+                            else: ckpt_dir = Path.home() / ".agent_maona" / "checkpoints"
                             ckpt_dir.mkdir(parents=True, exist_ok=True)
-                            ckpt = {"round": round_i + 1, "tools_done": len(all_tool_calls), "tools": all_tool_calls[-5:], "conv_id": conv_id}
-                            (ckpt_dir / "checkpoint.json").write_text(json.dumps(ckpt, ensure_ascii=False, indent=2))
+                            ckpt = {"round": round_i + 1, "tools_done": len(all_tool_calls), "tools": all_tool_calls[-5:], "conv_id": conv_id, "project_file_count": _project_file_count, "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S")}
+                            ckpt_file = ckpt_dir / ("checkpoint.json" if workspace else f"{conv_id}.json")
+                            ckpt_file.write_text(json.dumps(ckpt, ensure_ascii=False, indent=2))
                         except: pass
                     continue  # 回到 for 循环，让模型基于结果决定下一步
                 else:
@@ -894,21 +1081,23 @@ async def stream_chat(request: ChatRequest):
                 break  # 退出 while 循环
             # 任务已完成，检查是否需要自动续接
             if auto_continue_round + 1 < MAX_AUTO_CONTINUES and all_tool_calls and final_text:
-                asking_user = final_text.strip().endswith("？") or "?" in final_text[-20:]
+                _completion_exits += 1
+                if _completion_exits >= 3:
+                    break  # 断路器：连续3次完成文本 → 强制停止
+                asking_user = final_text.strip().endswith("？") or "?" in final_text.strip()[-50:] or "需要我" in final_text[-200:] or "需要帮你" in final_text[-200:]
                 # 检测「任务明确完成」的结束标志
                 task_done = any(h in final_text for h in (
                     "全部完成", "已全部", "任务完成", "✅", "无需重复执行",
                     "已完成工作", "以上就是", "总结如下", "确认完成", "已完整",
+                    "已创建完成", "已完成创建", "整理完毕", "收工",
                 ))
                 if task_done:
                     break  # 任务明确完成，不续接
                 # 检测「需要继续」的触发信号
                 wants_continue = any(h in final_text for h in (
                     "继续完成", "继续构建", "继续开发", "继续添加", "继续完善",
-                    "下一步", "接着做", "还没做完", "未完成", "换个方向",
-                    "创建了", "修改了", "已创建", "已添加", "接下来", "然后",
-                    "现在开始", "首先", "第一步",
-                )) or (len(all_tool_calls) >= 2 and "全部完成" not in final_text)
+                    "接着做", "还没做完", "未完成", "换个方向",
+                ))
                 if wants_continue and not asking_user:
                     auto_continue_round += 1
                     yield await send("auto_continue", round=auto_continue_round, total=MAX_AUTO_CONTINUES)
